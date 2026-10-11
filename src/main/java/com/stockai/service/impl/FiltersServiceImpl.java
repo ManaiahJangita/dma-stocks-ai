@@ -1,24 +1,27 @@
 package com.stockai.service.impl;
 
+import com.stockai.apiconstants.ApiConstants;
 import com.stockai.dto.*;
-import com.stockai.entity.CustomerEntity;
-import com.stockai.entity.MarketFiltersEntity;
-import com.stockai.entity.MarketOverviewFiltersEntity;
-import com.stockai.entity.StockAnalyzerFiltersEntity;
 import com.stockai.repository.FiltersRepository;
+import com.stockai.repository.InstrumentsRepository;
 import com.stockai.service.interf.FiltersService;
-import org.springframework.beans.BeanUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @Service
+@Slf4j
 public class FiltersServiceImpl implements FiltersService {
 
     @Autowired
     private FiltersRepository filtersRepository;
+
+    @Autowired
+    private InstrumentsRepository instrumentsRepository;
+
+    private static List<String> symbols;
 
     @Override
     public ReportFilterDto getReportFilters() {
@@ -37,37 +40,40 @@ public class FiltersServiceImpl implements FiltersService {
     }
 
     @Override
-    public List<MarketFiltersDto> getStockMarketFilters() {
-      List<MarketFiltersEntity> filters = filtersRepository.getStockMarketFilters();
-        List<MarketFiltersDto> marketFilters = new ArrayList<>();
-        for(MarketFiltersEntity entity : filters){
-            MarketFiltersDto dto = new MarketFiltersDto();
-            BeanUtils.copyProperties(entity,dto);
-            marketFilters.add(dto);
+    public MarketFiltersDto getStockMarketFilters() {
+        if(symbols == null) {
+            symbols = instrumentsRepository.findInstrumentsSymbols().stream().distinct().toList();
         }
+      MarketFiltersDto marketFilters = new MarketFiltersDto();
+        marketFilters.setSymbol(symbols);
+        marketFilters.setNextDayHigh(ApiConstants.nextDayHigh);
+        marketFilters.setNextDayLow(ApiConstants.nextDayLow);
+        marketFilters.setConfidenceScore(ApiConstants.confidence);
         return marketFilters;
     }
     @Override
-    public List<MarketFiltersOverviewDto> getDashBoardFilters() {
-        List<MarketOverviewFiltersEntity> filters = filtersRepository.getDashBoardFilters();
-        List<MarketFiltersOverviewDto> marketFilters = new ArrayList<>();
-        for(MarketOverviewFiltersEntity entity : filters){
-            MarketFiltersOverviewDto dto = new MarketFiltersOverviewDto();
-            BeanUtils.copyProperties(entity,dto);
-            marketFilters.add(dto);
+    public DashboardFilterDto getDashBoardFilters() {
+        if(symbols == null) {
+            symbols = instrumentsRepository.findInstrumentsSymbols().stream().distinct().toList();
         }
-        return marketFilters;
+        DashboardFilterDto dashboardFilterDto = new DashboardFilterDto();
+        dashboardFilterDto.setSymbol(symbols);
+        dashboardFilterDto.setNextDayHighDiff(ApiConstants.nextDayHigh);;
+        dashboardFilterDto.setNextDayLowDiff(ApiConstants.nextDayLow);
+        dashboardFilterDto.setConfidenceScoreDiff(ApiConstants.confidence);
+        return dashboardFilterDto;
     }
 
     @Override
-    public List<StockAnalyzerFiltersDto> getStockAnalyzerFilters() {
-        List<StockAnalyzerFiltersEntity> filters = filtersRepository.getStockAnalyzerFilters();
-        List<StockAnalyzerFiltersDto> marketFilters = new ArrayList<>();
-        for(StockAnalyzerFiltersEntity entity : filters){
-            StockAnalyzerFiltersDto dto = new StockAnalyzerFiltersDto();
-            BeanUtils.copyProperties(entity,dto);
-            marketFilters.add(dto);
+    public StockPredictionFiltersDto getStockPredictionFilters() {
+        if(symbols == null) {
+            symbols = instrumentsRepository.findInstrumentsSymbols().stream().distinct().toList();
         }
-        return marketFilters;
+        StockPredictionFiltersDto stockPredictionFilters = new StockPredictionFiltersDto();
+        stockPredictionFilters.setSymbol(symbols);
+        stockPredictionFilters.setNextDayHigh(ApiConstants.nextDayHigh);
+        stockPredictionFilters.setNextDayLow(ApiConstants.nextDayLow);
+        stockPredictionFilters.setConfidenceScore(ApiConstants.confidence);
+        return stockPredictionFilters;
     }
 }

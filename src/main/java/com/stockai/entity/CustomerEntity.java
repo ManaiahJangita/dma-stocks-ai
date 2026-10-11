@@ -31,6 +31,9 @@ public class CustomerEntity {
     @Column
     private String status;
 
+    @Column(length = 255)
+    private String roles;
+
     @Column(name = "created_date", nullable = false)
     private LocalDateTime createdDate;
 

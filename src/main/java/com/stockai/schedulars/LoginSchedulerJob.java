@@ -14,7 +14,7 @@ public class LoginSchedulerJob extends BasicJob {
 
     @Autowired
     private AngelOneRestService angelOneRestService;
-    @Scheduled(cron = "0 0 17 ? * MON-FRI")
+    @Scheduled(cron = "0 30 16 ? * MON-FRI")
     public void executeJob() {
         log.debug("Started login scheduler job");
 

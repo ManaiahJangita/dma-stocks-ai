@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
@@ -11,12 +12,39 @@ import java.util.UUID;
 @Table(name = "prediction", schema = "dmastock")
 public class PredictionEntity {
     @Id
-    @GeneratedValue(generator = "prediction_generator", strategy = GenerationType.SEQUENCE)
-    @SequenceGenerator(name = "prediction_generator", sequenceName = "dmastock.prediction_sequence", initialValue = 1, allocationSize = 1)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "id", nullable = false, updatable = false, columnDefinition = "uuid")
+    private UUID id;
 
     @Column(name = "run_id")
     private UUID runId;
+
+    @Column(name = "run_start_date")
+    private LocalDate runStartDate;
+
+    @Column(name = "run_end_date")
+    private LocalDate runEndDate;
+
+    @Column(name = "run_created_at")
+    private LocalDateTime runCreatedAt;
+
+    @Column(name = "predictions_saved")
+    private Integer predictionsSaved;
+
+    @Column(name = "skipped_symbols")
+    private Integer skippedSymbols;
+
+    @Column(name = "validation_samples")
+    private Integer validationSamples;
+
+    @Column(name = "correct_validation_predictions")
+    private Integer correctValidationPredictions;
+
+    @Column(name = "validation_accuracy_percent")
+    private Double validationAccuracyPercent;
+
+    @Column(name = "accuracy_metric", length = 160)
+    private String accuracyMetric;
 
     @Column(nullable = false)
     private String symbol;
@@ -30,69 +58,51 @@ public class PredictionEntity {
     @Column(nullable = false)
     private Double low;
 
-    @Column(nullable = false)
-    private Double day_end_close;
+    @Column(name = "close", nullable = false)
+    private Double close;
+
+    @Column(name = "volume", nullable = false)
+    private Double volume;
 
     @Column(nullable = false)
-    private Double previous_close;
+    private Double per;
 
     @Column(nullable = false)
-    private Double trd_vol;
+    private Double ptsC;
 
-    @Column(nullable = false)
-    private double per;
+    @Column(name = "created_date", nullable = false)
+    private LocalDate createdDate;
 
-    @Column(nullable = false)
-    private double ptsC;
+    @Column(name = "prediction_date", nullable = false)
+    private LocalDate predictionDate;
 
-    @Column(nullable = false)
-    private LocalDate created_date;
+    @Column(name = "prediction_close", nullable = false)
+    private Double predictionClose;
 
-    @Column(nullable = false)
-    private String prediction_date;
+    @Column(name = "prediction_direction", nullable = false)
+    private String predictionDirection;
 
-    @Column(nullable = false)
-    private double prediction_close;
+    @Column(name = "prediction_close_percentage", nullable = false)
+    private Double predictionClosePercentage;
 
-    @Column(nullable = false)
-    private String prediction_direction;
+    @Column(name = "predicted_high", nullable = false)
+    private Double predictedHigh;
 
-    @Column(nullable = false)
-    private double prediction_close_percentage;
+    @Column(name = "predicted_high_percentage", nullable = false)
+    private Double predictedHighPercentage;
 
-    @Column(nullable = false)
-    private double predicted_high;
+    @Column(name = "predicted_low", nullable = false)
+    private Double predictedLow;
 
-    @Column(nullable = false)
-    private double predicted_high_percentage;
+    @Column(name = "predicted_low_percentage", nullable = false)
+    private Double predictedLowPercentage;
 
-    @Column(nullable = false)
-    private double predicted_low;
+    @Column(name = "confidence_percent", nullable = false)
+    private Double confidencePercent;
 
-    @Column(nullable = false)
-    private double predicted_low_percentage;
+    @Column(name = "up_probability_percent", nullable = false)
+    private Double upProbabilityPercent;
 
-    @Column(nullable = false)
-    private double confidence_percent;
-
-    @Column(nullable = false)
-    private double up_probability_percent;
-
-    @Column(nullable = false)
-    private double down_probability_percent;
-    
-    @Transient
-    private LocalDate fromDate;
-    
-    @Transient
-    private LocalDate toDate;
-    
-    @Transient
-    private Double minimumConfidence;
-    
-    @Transient
-    private Double maximumConfidence;
-
-    @Transient
-    private String predictionDirectionFilter;
+    @Column(name = "down_probability_percent", nullable = false)
+    private Double downProbabilityPercent;
 }

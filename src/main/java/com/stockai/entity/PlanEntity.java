@@ -3,8 +3,8 @@ package com.stockai.entity;
 import jakarta.persistence.*;
 import lombok.Data;
 
-import java.time.LocalDateTime;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Data
@@ -31,7 +31,7 @@ public class PlanEntity {
     @Column(nullable = false)
     private double price;
 
-    @Column
+    @Column(name = "status", nullable = false)
     private String status;
 
     @Column(name = "created_date", nullable = false)
@@ -40,15 +40,15 @@ public class PlanEntity {
     @Column(name = "updated_date", nullable = false)
     private LocalDateTime updatedDate;
 
-    @Transient
+    @Column(name = "from_date")
     private LocalDate fromDate;
 
-    @Transient
+    @Column(name = "to_date")
     private LocalDate toDate;
 
-    @Transient
+    @Column(name = "minimum_amount")
     private Double minimumPrice;
 
-    @Transient
+    @Column(name = "maximum_amount")
     private Double maximumPrice;
 }

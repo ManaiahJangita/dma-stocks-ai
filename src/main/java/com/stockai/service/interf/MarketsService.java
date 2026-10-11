@@ -1,12 +1,16 @@
 package com.stockai.service.interf;
 
 import com.stockai.dto.MarketDto;
+import com.stockai.dto.MarketFiltersDto;
 
 import java.util.List;
 
 public interface MarketsService {
 
-    List<MarketDto> fetchMarketsData(MarketDto filters);
+    List<MarketDto> fetchMarketsData(MarketFiltersDto filters);
 
-    int syncOneYearHistoricalData();
+    List<MarketDto> fetchMarketsData(Integer offset, Integer limit);
+
+    int syncTwoYearHistoricalData();
+
 }

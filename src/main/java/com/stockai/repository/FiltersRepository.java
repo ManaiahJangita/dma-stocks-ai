@@ -8,13 +8,8 @@ import java.util.List;
 @Repository
 public interface FiltersRepository {
 
-    public List<String> getReportFilters();
+     List<String> getReportFilters();
 
-    public List<String> getPatternFilters();
+     List<String> getPatternFilters();
 
-    public List<StockAnalyzerFiltersEntity> getStockAnalyzerFilters();
-
-    public List<MarketFiltersEntity> getStockMarketFilters();
-
-    public List<MarketOverviewFiltersEntity> getDashBoardFilters();
 }

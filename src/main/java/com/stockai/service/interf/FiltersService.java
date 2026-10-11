@@ -10,9 +10,9 @@ public interface FiltersService {
 
     public PatternFilterDto getPatternFilters();
 
-    public List<MarketFiltersDto> getStockMarketFilters();
+    public MarketFiltersDto getStockMarketFilters();
 
-    public List<MarketFiltersOverviewDto> getDashBoardFilters();
+    public DashboardFilterDto getDashBoardFilters();
 
-    public List<StockAnalyzerFiltersDto> getStockAnalyzerFilters();
+    public StockPredictionFiltersDto getStockPredictionFilters();
 }

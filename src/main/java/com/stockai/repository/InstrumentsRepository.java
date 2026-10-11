@@ -14,6 +14,10 @@ public interface InstrumentsRepository {
     @Query(value = "SELECT name FROM dmastock.instruments", nativeQuery = true)
     public List<String> findAllInstruments();
 
+    public List<String> findInstrumentsSymbols();
+
+    List<InstrumentsEntity> findInstrumentsByExchange(String exchange);
+
     @Query(value = "TRUNCATE TABLE dmastock.instruments", nativeQuery = true)
     public void truncateInstrumentsTable();
 }

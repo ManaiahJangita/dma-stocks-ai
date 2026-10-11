@@ -1,6 +1,7 @@
 package com.stockai.controller;
 
 import com.stockai.dto.CustomerDto;
+import com.stockai.dto.CustomersFilterDto;
 import com.stockai.service.interf.CustomersService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -15,9 +16,10 @@ public class CustomersController {
     @Autowired
     private CustomersService customersService;
 
-    @GetMapping("/customer-data")
-    public ResponseEntity<List<CustomerDto>> getCustomersBasedOnFilters(@RequestBody CustomerDto filters) {
+    @PostMapping("/customer-data")
+    public ResponseEntity<List<CustomerDto>> getCustomersBasedOnFilters(@RequestBody CustomersFilterDto filters) {
         List<CustomerDto> response = customersService.getCustomersFilters(filters);
+
         if (response.isEmpty()) {
             return ResponseEntity.noContent().build();
         }
@@ -25,10 +27,10 @@ public class CustomersController {
     }
 
     @GetMapping("/customers")
-    public ResponseEntity<List<CustomerDto>> getAllCustomersInfo(){
+    public ResponseEntity<List<CustomerDto>> getAllCustomersInfo() {
         List<CustomerDto> response = customersService.fetchAllCustomersInfo();
-        if(response.isEmpty())
+        if (response.isEmpty())
             return ResponseEntity.noContent().build();
-        return new ResponseEntity<>(response,HttpStatus.OK);
+        return new ResponseEntity<>(response, HttpStatus.OK);
     }
 }

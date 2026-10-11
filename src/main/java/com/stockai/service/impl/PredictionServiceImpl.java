@@ -2,12 +2,10 @@ package com.stockai.service.impl;
 
 import com.stockai.apipridection.service.StockAIService;
 import com.stockai.dto.PredictionDto;
-import com.stockai.dto.PredictionRunRequest;
-import com.stockai.dto.PredictionRunResult;
-import com.stockai.dto.PredictionView;
+import com.stockai.dto.PredictionFiltersDto;
 import com.stockai.entity.HistoricalDataEntity;
+import com.stockai.entity.HistoricalPredictionEntity;
 import com.stockai.entity.PredictionEntity;
-import com.stockai.entity.PredictionRunEntity;
 import com.stockai.repository.PredictionRepository;
 import com.stockai.service.interf.PredictionService;
 import lombok.extern.slf4j.Slf4j;
@@ -32,14 +30,33 @@ public class PredictionServiceImpl implements PredictionService {
 
     @Autowired
     private StockAIService stockAiService;
+
     @Autowired
     private PredictionRepository predictionRepository;
 
     @Override
-    @Transactional
-    public PredictionRunResult savePrediction(String startDate, String endDate) {
-        log.info("Started saving prediction data");
+    public List<PredictionDto> getPredictionDetailsByFilters(PredictionFiltersDto filters) {
+        List<PredictionEntity> predictionEntities = predictionRepository.findPredictionsByFilters(filters);
+        return predictionEntities.stream().map(prediction -> {
+            PredictionDto dto = new PredictionDto();
+            BeanUtils.copyProperties(prediction, dto);
+            return dto;
+        }).collect(Collectors.toList());
+    }
 
+    private PredictionFiltersDto arrangeFilters(PredictionFiltersDto filters) {
+        if (filters == null) {
+            return new PredictionFiltersDto();
+        }
+        return filters;
+    }
+
+    @Override
+    @Transactional
+    public void synchronizePredictions(String startDate, String endDate) {
+        log.info("Started saving prediction data");
+        predictionRepository.deletePredictionRecords();
+        int totalUpserted = 0;
         LocalDate parsedStartDate = LocalDate.parse(startDate);
         LocalDate parsedEndDate = LocalDate.parse(endDate);
         if (parsedStartDate.isAfter(parsedEndDate)) {
@@ -56,6 +73,7 @@ public class PredictionServiceImpl implements PredictionService {
         int skippedSymbols = 0;
         int validationSamples = 0;
         int correctValidationPredictions = 0;
+
         for (Map.Entry<String, List<HistoricalDataEntity>> entry : groupedData.entrySet()) {
             List<HistoricalDataEntity> symbolHistory = entry.getValue();
             symbolHistory.sort(Comparator.comparing(HistoricalDataEntity::getCreatedDate));
@@ -71,102 +89,67 @@ public class PredictionServiceImpl implements PredictionService {
             entity.setOpen(latest.getOpen());
             entity.setHigh(latest.getHigh());
             entity.setLow(latest.getLow());
-            entity.setDay_end_close(latest.getClose());
-            entity.setPrevious_close(symbolHistory.size() > 1
-                    ? symbolHistory.get(symbolHistory.size() - 2).getClose()
-                    : latest.getClose());
-            entity.setTrd_vol((double) latest.getVolume());
+            entity.setClose(latest.getClose());
+            entity.setVolume((double) latest.getVolume());
             entity.setPer(latest.getPer());
             entity.setPtsC(latest.getPtsC());
-            entity.setCreated_date(latest.getCreatedDate());
-            entity.setPrediction_date(LocalDate.now().toString());
-            entity.setPrediction_close(analysis.getPredictedClose());
-            entity.setPrediction_direction(analysis.getDirection());
-            entity.setPrediction_close_percentage(analysis.getPredictedClosePercentage());
-            entity.setPredicted_high(analysis.getPredictedHigh());
-            entity.setPredicted_high_percentage(analysis.getPredictedHighPercentage());
-            entity.setPredicted_low(analysis.getPredictedLow());
-            entity.setPredicted_low_percentage(analysis.getPredictedLowPercentage());
-            entity.setConfidence_percent(analysis.getConfidencePercent());
-            entity.setUp_probability_percent(analysis.getUpProbabilityPercent());
-            entity.setDown_probability_percent(analysis.getDownProbabilityPercent());
+            entity.setCreatedDate(latest.getCreatedDate());
+            entity.setPredictionDate(LocalDate.now());
+            entity.setPredictionClose(latest.getClose());
+            entity.setPredictionDirection(analysis.getDirection());
+            entity.setPredictionClosePercentage(0.0);
+            entity.setPredictedHigh(analysis.getPredictedHigh());
+            entity.setPredictedHighPercentage(analysis.getPredictedHighPercentage());
+            entity.setPredictedLow(analysis.getPredictedLow());
+            entity.setPredictedLowPercentage(analysis.getPredictedLowPercentage());
+            entity.setConfidencePercent(analysis.getConfidencePercent());
+            entity.setUpProbabilityPercent(analysis.getUpProbabilityPercent());
+            entity.setDownProbabilityPercent(analysis.getDownProbabilityPercent());
 
             predictions.add(entity);
             validationSamples += analysis.getValidationSamples();
             correctValidationPredictions += analysis.getCorrectValidationPredictions();
         }
+        log.info("Completed generating predictions for all historical data.");
         double validationAccuracyPercent = validationSamples == 0
                 ? 0.0
                 : correctValidationPredictions * 100.0 / validationSamples;
 
-        PredictionRunEntity run = new PredictionRunEntity();
-        run.setStartDate(parsedStartDate);
-        run.setEndDate(parsedEndDate);
-        run.setCreatedAt(LocalDateTime.now());
-        run.setPredictionsSaved(predictions.size());
-        run.setSkippedSymbols(skippedSymbols);
-        run.setValidationSamples(validationSamples);
-        run.setCorrectValidationPredictions(correctValidationPredictions);
-        run.setValidationAccuracyPercent(validationAccuracyPercent);
-        run.setAccuracyMetric("Next available session direction; chronological 80/20 holdout");
-        predictionRepository.savePredictionRun(run);
+        UUID runId = UUID.randomUUID();
+        LocalDateTime runCreatedAt = LocalDateTime.now();
+        int predictionsSaved = predictions.size();
 
-        predictions.forEach(prediction -> prediction.setRunId(run.getId()));
-        if (!predictions.isEmpty()) {
-            predictionRepository.savePrediction(predictions);
+        for (PredictionEntity prediction : predictions) {
+            prediction.setRunId(runId);
+            prediction.setRunStartDate(parsedStartDate);
+            prediction.setRunEndDate(parsedEndDate);
+            prediction.setRunCreatedAt(runCreatedAt);
+            prediction.setPredictionsSaved(predictionsSaved);
+            prediction.setSkippedSymbols(skippedSymbols);
+            prediction.setValidationSamples(validationSamples);
+            prediction.setCorrectValidationPredictions(correctValidationPredictions);
+            prediction.setValidationAccuracyPercent(validationAccuracyPercent);
+            prediction.setAccuracyMetric("Next available session direction; chronological 80/20 holdout");
         }
-        return toResult(run);
-    }
+        log.info("Prepared {} prediction records for saving", predictions.size());
+        if (!predictions.isEmpty()) {
+            for (int i = 0; i < predictions.size(); i += 500) {
+                int end = Math.min(i + 500, predictions.size());
+                List<PredictionEntity> batch = predictions.subList(i, end);
+                log.info("Saving batch of {} prediction records", batch.size());
+                predictionRepository.savePrediction(batch);
+                totalUpserted += batch.size();
 
-    @Override
-    public PredictionRunResult getLatestRun() {
-        PredictionRunEntity run = predictionRepository.findLatestPredictionRun();
-        return run == null ? null : toResult(run);
+                List<HistoricalPredictionEntity> historicalBatch = new java.util.ArrayList<>();
+                for (PredictionEntity prediction : batch) {
+                    HistoricalPredictionEntity historicalEntity = new HistoricalPredictionEntity();
+                    BeanUtils.copyProperties(prediction, historicalEntity);
+                    historicalEntity.setId(null);
+                    historicalBatch.add(historicalEntity);
+                }
+                log.info("Saving {} historical prediction records for audit trail", historicalBatch.size());
+                predictionRepository.saveHistoricalPrediction(historicalBatch);
+            }
+        }
     }
-
-    @Override
-    public List<PredictionRunResult> getRecentRuns(PredictionRunRequest filters) {
-        PredictionRunEntity entityFilters = new PredictionRunEntity();
-        BeanUtils.copyProperties(filters, entityFilters);
-        return predictionRepository.findPredictionRuns(entityFilters).stream()
-                .map(PredictionServiceImpl::toResult)
-                .toList();
-    }
-
-    @Override
-    public List<PredictionView> getPredictions(UUID runId, PredictionDto filters) {
-        PredictionEntity entityFilters = new PredictionEntity();
-        BeanUtils.copyProperties(filters, entityFilters);
-        return predictionRepository.findPredictions(runId, entityFilters).stream()
-                .map(prediction -> new PredictionView(
-                        prediction.getId(),
-                        prediction.getRunId(),
-                        prediction.getSymbol(),
-                        prediction.getCreated_date(),
-                        LocalDate.parse(prediction.getPrediction_date()),
-                        prediction.getDay_end_close(),
-                        prediction.getPrediction_close(),
-                        prediction.getPredicted_high(),
-                        prediction.getPredicted_low(),
-                        prediction.getPrediction_direction(),
-                        prediction.getConfidence_percent(),
-                        prediction.getUp_probability_percent(),
-                        prediction.getDown_probability_percent()))
-                .toList();
-    }
-
-    private static PredictionRunResult toResult(PredictionRunEntity run) {
-        return new PredictionRunResult(
-                run.getId(),
-                run.getStartDate(),
-                run.getEndDate(),
-                run.getCreatedAt(),
-                run.getPredictionsSaved(),
-                run.getSkippedSymbols(),
-                run.getValidationSamples(),
-                run.getCorrectValidationPredictions(),
-                run.getValidationAccuracyPercent(),
-                run.getAccuracyMetric());
-    }
-
 }

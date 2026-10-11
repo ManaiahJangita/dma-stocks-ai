@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 
 import java.time.LocalDateTime;
-import java.time.LocalDate;
 import java.util.UUID;
 
 @Data
@@ -17,6 +16,7 @@ public class CustomerDto {
     private String email;
     private String phone;
     private String status;
+    private String roles;
     private LocalDateTime createdDate;
     private LocalDateTime updatedDate;
 }

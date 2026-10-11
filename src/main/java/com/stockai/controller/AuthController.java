@@ -108,13 +108,16 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<UserDetailsDto> login(@RequestBody UserDetailsDto request, HttpServletRequest servletRequest, HttpServletResponse servletResponse) {
+    public ResponseEntity<?> login(@RequestBody UserDetailsDto request, HttpServletRequest servletRequest, HttpServletResponse servletResponse) {
         try {
             UserDetailsDto response = loginService.login(request);
             CookieUtils.addCookie(ApiConstants.USER_ID_COOKIE_NAME, response.getToken(), jwtTokenUtil.getCookieMaxAgeSeconds(), servletResponse, servletRequest.isSecure());
-            return new ResponseEntity<>(response,HttpStatus.OK);
+            return new ResponseEntity<>(response, HttpStatus.OK);
         } catch (BadCredentialsException exception) {
-            return ResponseEntity.noContent().build();
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid email or password");
+        } catch (IllegalStateException exception) {
+            // Raised when user does not have an active plan
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(exception.getMessage());
         }
     }
 

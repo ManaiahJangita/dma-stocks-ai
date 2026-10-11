@@ -1,6 +1,7 @@
 package com.stockai.service.impl;
 
 import com.stockai.dto.PaymentsDto;
+import com.stockai.dto.PaymentsFilterDto;
 import com.stockai.entity.PaymentEntity;
 import com.stockai.entity.PlanEntity;
 import com.stockai.repository.PaymentRepository;
@@ -27,16 +28,13 @@ public class PaymentServiceImpl implements PaymentService {
     private PlansRepository plansRepository;
 
     @Override
-    public List<PaymentsDto> fetchPaymentsBasedOnFilters(PaymentsDto filters) {
-        List<PaymentsDto> payments = new ArrayList<>();
-        PaymentEntity entityFilters = new PaymentEntity();
-        BeanUtils.copyProperties(filters, entityFilters);
-        for (PaymentEntity entity : paymentRepository.findPaymentPlans(entityFilters)) {
+    public List<PaymentsDto> fetchPaymentsBasedOnFilters(PaymentsFilterDto filters) {
+        List<PaymentEntity> response = paymentRepository.findPaymentPlans(filters);
+        return response.stream().map(entity -> {;
             PaymentsDto dto = new PaymentsDto();
             BeanUtils.copyProperties(entity, dto);
-            payments.add(dto);
-        }
-        return payments;
+            return dto;
+        }).toList();
     }
 
     public List<PaymentsDto> fetchAllPayments() {
@@ -65,7 +63,7 @@ public class PaymentServiceImpl implements PaymentService {
             target.setPaymentType("Online");
             target.setAmount(BigDecimal.valueOf(source.getPrice()));
             target.setCurrency("INR");
-            target.setStatus(source.getFromDate().isAfter(LocalDate.now()) ? "DeActivated" : source.getStatus());
+            target.setStatus(source.getFromDate() != null && source.getFromDate().isAfter(LocalDate.now()) ? "DeActivated" : source.getStatus());
             target.setTransactionReference(source.getTransactionReference());
             target.setCreatedDate(source.getCreatedDate());
             target.setPlanUpdatedDate(source.getUpdatedDate());
@@ -76,7 +74,9 @@ public class PaymentServiceImpl implements PaymentService {
             paymentPlans.add(target);
         }
         if (!paymentPlans.isEmpty()) {
+            log.info("Syncing {} payment plans from source to target", paymentPlans.size());
             paymentRepository.upsertPaymentPlans(paymentPlans);
+            log.info("Successfully synced {} payment plans from source to target", paymentPlans.size());
         }
         return paymentPlans.size();
     }

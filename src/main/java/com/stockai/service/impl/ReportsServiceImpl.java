@@ -18,11 +18,13 @@ public class ReportsServiceImpl implements ReportsService {
 
     @Autowired
     private ReportsRepository reportsRepository;
+
+
     @Override
     public List<ReportsDto> fetchReportsBasedOnFilters(ReportsDto filters) {
         List<ReportsDto> reports = new java.util.ArrayList<>();
         ReportEntity entityFilters = new ReportEntity();
-        BeanUtils.copyProperties(filters, entityFilters);
+        BeanUtils.copyProperties(filters == null ? new ReportsDto() : filters, entityFilters);
         for (ReportEntity entity : reportsRepository.findAllReports(entityFilters)) {
             ReportsDto dto = new ReportsDto();
             BeanUtils.copyProperties(entity, dto);

@@ -1,19 +1,12 @@
 package com.stockai.service.interf;
 
-import com.stockai.dto.PredictionRunResult;
 import com.stockai.dto.PredictionDto;
-import com.stockai.dto.PredictionRunRequest;
-import com.stockai.dto.PredictionView;
+import com.stockai.dto.PredictionFiltersDto;
 
 import java.util.List;
-import java.util.UUID;
 
 public interface PredictionService {
-    PredictionRunResult savePrediction(String startDate, String endDate);
+    List<PredictionDto> getPredictionDetailsByFilters(PredictionFiltersDto filters);
 
-    PredictionRunResult getLatestRun();
-
-    List<PredictionRunResult> getRecentRuns(PredictionRunRequest filters);
-
-    List<PredictionView> getPredictions(UUID runId, PredictionDto filters);
+    void synchronizePredictions(String startDate, String endDate);
 }

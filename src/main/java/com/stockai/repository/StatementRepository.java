@@ -1,5 +1,6 @@
 package com.stockai.repository;
 
+import com.stockai.dto.StatementFiltersDto;
 import com.stockai.entity.StatementEntity;
 import org.springframework.stereotype.Repository;
 
@@ -11,5 +12,5 @@ public interface StatementRepository {
 
 	StatementEntity saveStatement(StatementEntity statement);
 
-	List<StatementEntity> findStatements(StatementEntity filters);
+	List<StatementEntity> findStatements(StatementFiltersDto filters);
 }

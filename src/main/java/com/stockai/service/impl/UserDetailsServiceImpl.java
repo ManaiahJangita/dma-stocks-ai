@@ -9,6 +9,7 @@ import com.stockai.entity.User;
 import com.stockai.repository.AuditLogRepository;
 import com.stockai.repository.PasswordResetOtpRepository;
 import com.stockai.repository.UserRepository;
+import com.stockai.repository.PlansRepository;
 import com.stockai.service.interf.EmailDeliveryService;
 import com.stockai.service.interf.UserDetailsService;
 import com.stockai.utils.JwtTokenUtil;
@@ -41,6 +42,9 @@ public class UserDetailsServiceImpl implements UserDetailsService {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private PlansRepository plansRepository;
 
     @Autowired
     private PasswordResetOtpRepository passwordResetOtpRepository;
@@ -84,6 +88,22 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         response.setPhoneNumber(String.valueOf(user.getMobileNumber()));
         response.setImage(user.getImage());
         response.setAddress(user.getAddress());
+        // Verify the user has an active plan before issuing a token
+        PlanEntity plan = plansRepository.findByUserName(user.getEmail());
+        java.time.LocalDate today = java.time.LocalDate.now();
+        boolean hasActivePlan = false;
+        if (plan != null) {
+            // plan.status expected to indicate active state (e.g., "ACTIVE").
+            boolean statusActive = plan.getStatus() != null && plan.getStatus().toLowerCase().contains("active");
+            boolean withinRange = (plan.getFromDate() == null || !plan.getFromDate().isAfter(today))
+                    && (plan.getToDate() == null || !plan.getToDate().isBefore(today));
+            hasActivePlan = statusActive && withinRange;
+        }
+        if (!hasActivePlan) {
+            audit(user, email, "Login_Failure_No_Active_Plan");
+            throw new IllegalStateException("User doesnot have active plan");
+        }
+
         response.setToken(jwtTokenUtil.generateToken(user.getEmail(), user.getId().toString(), roles));
         audit(user, email, "Login_Success");
         return response;

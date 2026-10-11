@@ -8,6 +8,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Objects;
+
 @RestController
 @RequestMapping("/api/v1/plans")
 public class PlansController {
@@ -16,9 +18,8 @@ public class PlansController {
 
     @PostMapping("/save-plans")
     public ResponseEntity<String> savePlan(@RequestBody PlanDto planDto) {
-        if (planDto.getMinimumPrice() != null && planDto.getMaximumPrice() != null
-                && planDto.getMinimumPrice() > planDto.getMaximumPrice()) {
-            return ResponseEntity.badRequest().body("minimumPrice must not exceed maximumPrice");
+        if(Objects.isNull(planDto)) {
+            return ResponseEntity.badRequest().body("Plan data is required");
         }
         String response = plansService.addPlan(planDto);
         if (!StringUtils.hasText(response)) {

@@ -17,7 +17,6 @@ public class InstrumentsDto {
     private String token;
     private String symbol;
     private String name;
-    private Date expiry;
     private Double strike;
     private String instrumentType;
     private String exchSeg;

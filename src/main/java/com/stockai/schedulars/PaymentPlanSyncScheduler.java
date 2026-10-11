@@ -17,16 +17,14 @@ public class PaymentPlanSyncScheduler extends BasicJob {
 
 
     @Override
-    @Scheduled(cron = "0 0 17 ? * MON-FRI")
+    @Scheduled(cron = "0 30 16 ? * MON-SUN")
     public void executeJob() {
         log.info("Execute Job Method Execution started to load all payment details.");
-        if(canProcess()) {
             try {
                 int synced = paymentService.syncPaymentPlanCatalog();
                 log.info("Synchronized {} plans into the payment plan catalog", synced);
             } catch (Exception exception) {
                 log.error("Could not synchronize plans into the payment plan catalog", exception);
             }
-        }
     }
 }

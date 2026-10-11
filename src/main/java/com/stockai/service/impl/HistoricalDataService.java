@@ -8,6 +8,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -46,6 +47,6 @@ public class HistoricalDataService {
     }
 
     public List<HistoricalDataEntity> getAllHistoricalData(String startDate, String endDate) {
-        return repository.findAll(startDate, endDate);
+        return repository.findAll(LocalDate.parse(startDate), LocalDate.parse(endDate));
     }
 }

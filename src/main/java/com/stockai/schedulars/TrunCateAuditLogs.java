@@ -14,7 +14,7 @@ public class TrunCateAuditLogs extends BasicJob {
     private AuditLogRepository auditLogRepository;
 
     @Override
-    @Scheduled(cron = "0 0 1 */3 *")
+    @Scheduled(cron = "0 0 0 1 */3 *")
     public void executeJob() {
         log.info("Executing Truncate audit log table.");
         auditLogRepository.truncateAudiLogs();

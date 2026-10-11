@@ -14,7 +14,7 @@ public class CustomersSyncSchedular extends BasicJob {
     @Autowired
     private CustomersService customersService;
     @Override
-    @Scheduled(cron = "0 30 16 ? * MON-SAT")
+    @Scheduled(cron = "0 30 16 ? * MON-SUN")
     public void executeJob() {
         log.info("Customers sync job execution started.");
         int count = customersService.syncAllCustomersInfo();

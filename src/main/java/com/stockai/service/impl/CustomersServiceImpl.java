@@ -1,7 +1,8 @@
 package com.stockai.service.impl;
 
 import com.stockai.dto.CustomerDto;
-import com.stockai.dto.UserDto;
+import com.stockai.dto.CustomersFilterDto;
+import java.util.stream.Collectors;
 import com.stockai.entity.CustomerEntity;
 import com.stockai.entity.User;
 import com.stockai.repository.CustomersRespository;
@@ -9,11 +10,12 @@ import com.stockai.repository.UserRepository;
 import com.stockai.service.interf.CustomersService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Bean;
+// ...existing code...
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CustomersServiceImpl implements CustomersService {
@@ -25,16 +27,14 @@ public class CustomersServiceImpl implements CustomersService {
     private UserRepository userRepository;
 
     @Override
-    public List<CustomerDto> getCustomersFilters(CustomerDto filters) {
-        List<CustomerDto> customers = new ArrayList<>();
-        CustomerEntity entityFilters = new CustomerEntity();
-        BeanUtils.copyProperties(filters, entityFilters);
-        for (CustomerEntity entity : customersRespository.findCustomers(entityFilters)) {
+    public List<CustomerDto> getCustomersFilters(CustomersFilterDto filters) {
+        List<CustomerEntity> allCustomers = customersRespository.findCustomers(filters);
+
+        return allCustomers.stream().map(customer -> {
             CustomerDto dto = new CustomerDto();
-            BeanUtils.copyProperties(entity, dto);
-            customers.add(dto);
-        }
-        return customers;
+            BeanUtils.copyProperties(customer, dto);
+            return dto;
+        }).toList();
     }
 
     @Override
@@ -49,6 +49,7 @@ public class CustomersServiceImpl implements CustomersService {
         return customerDto;
     }
 
+    @Transactional
     public int syncAllCustomersInfo(){
         List<User> allUsers =  userRepository.findAll();
         List<CustomerEntity> allCustomers = new ArrayList<>(allUsers.size());
@@ -61,6 +62,20 @@ public class CustomersServiceImpl implements CustomersService {
             dto.setCreatedDate(user.getCreatedDate());
             dto.setUpdatedDate(user.getUpdatedDate());
             dto.setStatus(user.getStatus());
+            // convert user roles to comma separated string and store in customer entity
+            try {
+                if (user.getRoles() != null && !user.getRoles().isEmpty()) {
+                    String rolesCsv = user.getRoles().stream()
+                            .map(com.stockai.entity.UserRoles::getRoleName)
+                            .distinct()
+                            .collect(Collectors.joining(","));
+                    dto.setRoles(rolesCsv);
+                } else {
+                    dto.setRoles(null);
+                }
+            } catch (Exception ex) {
+                dto.setRoles(null);
+            }
             allCustomers.add(dto);
         }
         return  customersRespository.saveAllCustomers(allCustomers);

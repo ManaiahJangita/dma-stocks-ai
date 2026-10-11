@@ -1,9 +1,13 @@
 package com.stockai.repository;
 
+import com.stockai.dto.*;
 import com.stockai.entity.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
-import jakarta.persistence.criteria.*;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,7 +19,7 @@ import java.util.*;
 @Transactional
 public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRespository, DashboardRepository, AuditLogRepository,
         InstrumentsRepository, DailyStockRepository, FiltersRepository, PredictionRepository, MarketRepository,
-        PatternsRepository, PaymentRepository, ReportsRepository, PlansRepository, StatementRepository, StockAnalyzerRepository {
+        PatternsRepository, PaymentRepository, ReportsRepository, PlansRepository, StatementRepository, HistoricalDashboardRepository {
     @PersistenceContext
     EntityManager entityManager = null;
 
@@ -29,10 +33,22 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
     }
 
     @Override
-    public List<HistoricalDataEntity> findAll(String startDate, String endDate) {
+    public List<HistoricalDataEntity> findAll(LocalDate startDate, LocalDate endDate) {
         return entityManager.createNativeQuery("SELECT * FROM dmastock.historical_data WHERE created_date BETWEEN :startDate AND :endDate ORDER BY symbol, created_date", HistoricalDataEntity.class)
                 .setParameter("startDate", startDate)
                 .setParameter("endDate", endDate)
+                .getResultList();
+    }
+
+    @Override
+    public List<HistoricalDataEntity> findAll(LocalDate startDate, LocalDate endDate, int offset, int limit) {
+        return entityManager.createNativeQuery(
+                        "SELECT * FROM dmastock.historical_data WHERE created_date BETWEEN :startDate AND :endDate ORDER BY symbol, created_date LIMIT :limit OFFSET :offset",
+                        HistoricalDataEntity.class)
+                .setParameter("startDate", startDate)
+                .setParameter("endDate", endDate)
+                .setParameter("limit", limit)
+                .setParameter("offset", offset)
                 .getResultList();
     }
 
@@ -49,6 +65,19 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
     @Override
     public List<String> findAllInstruments() {
         return entityManager.createNativeQuery("SELECT name FROM dmastock.instruments").getResultList();
+    }
+
+    @Override
+    public List<String> findInstrumentsSymbols() {
+        return entityManager.createNativeQuery("SELECT symbol FROM dmastock.instruments").getResultList();
+    }
+
+    @Override
+    public List<InstrumentsEntity> findInstrumentsByExchange(String exchange) {
+        return entityManager.createQuery(
+                        "SELECT i FROM InstrumentsEntity i WHERE UPPER(i.exchSeg) = :exchange", InstrumentsEntity.class)
+                .setParameter("exchange", exchange.trim().toUpperCase(Locale.ROOT))
+                .getResultList();
     }
 
     @Override
@@ -72,10 +101,135 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
     }
 
     @Override
-    public List<DashboardEntity> findAllDashboardData(DashboardEntity filters) {
-        return findTextFiltered(DashboardEntity.class, "createdDate",
-                textFilters("title", filters.getTitle(), "description", filters.getDescription(),
-                        "status", filters.getStatus()), filters.getId(), filters.getFromDate(), filters.getToDate());
+    public List<DashboardEntity> findAllDashboardData(DashboardFilterDto filters) {
+        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
+        CriteriaQuery<DashboardEntity> query = builder.createQuery(DashboardEntity.class);
+        Root<DashboardEntity> root = query.from(DashboardEntity.class);
+        List<Predicate> predicates = new ArrayList<>();
+        if (filters.getSymbol() != null && !filters.getSymbol().isEmpty()) {
+            predicates.add(buildStringInPredicate(builder, root.get("symbol"), filters.getSymbol()));
+        }
+        if (filters.getConfidenceScoreDiff() != null && !filters.getConfidenceScoreDiff().isEmpty()) {
+            // map filter to actual DashboardEntity field
+            predicates.add(buildMultiValueRangePredicate(builder, root, "confidenceScore", filters.getConfidenceScoreDiff()));
+        }
+        if (filters.getNextDayHighDiff() != null && !filters.getNextDayHighDiff().isEmpty()) {
+            // map filter to actual DashboardEntity field
+            predicates.add(buildMultiValueRangePredicate(builder, root, "nextDayHigh", filters.getNextDayHighDiff()));
+        }
+        if (filters.getNextDayLowDiff() != null && !filters.getNextDayLowDiff().isEmpty()) {
+            // map filter to actual DashboardEntity field
+            predicates.add(buildMultiValueRangePredicate(builder, root, "nextDayLow", filters.getNextDayLowDiff()));
+        }
+        query.where(predicates.toArray(Predicate[]::new));
+        return entityManager.createQuery(query).getResultList();
+    }
+
+    private static Predicate buildMultiValueRangePredicate(CriteriaBuilder builder, Root<?> root, String fieldName, List<String> values) {
+        List<Predicate> valuePredicates = new ArrayList<>();
+        for (String rawValue : values) {
+            if (rawValue == null || rawValue.isBlank()) {
+                continue;
+            }
+            Predicate predicate = buildSingleRangePredicate(builder, root, fieldName, rawValue.trim());
+            if (predicate != null) {
+                valuePredicates.add(predicate);
+            }
+        }
+        if (valuePredicates.isEmpty()) {
+            return builder.conjunction();
+        }
+        return valuePredicates.size() == 1 ? valuePredicates.get(0) : builder.or(valuePredicates.toArray(Predicate[]::new));
+    }
+
+    private static Predicate buildSingleRangePredicate(CriteriaBuilder builder, Root<?> root, String fieldName, String value) {
+        String normalized = value.trim();
+        if (normalized.equalsIgnoreCase("High")) {
+            return builder.between(root.get(fieldName).as(Double.class), 80.0, 100.0);
+        }
+        if (normalized.equalsIgnoreCase("Medium")) {
+            return builder.between(root.get(fieldName).as(Double.class), 60.0, 80.0);
+        }
+        if (normalized.equalsIgnoreCase("Low")) {
+            return builder.between(root.get(fieldName).as(Double.class), 50.0, 70.0);
+        }
+
+        if (normalized.matches("(?i)^(highest|lowest)(\\d+)$")) {
+            String kind = normalized.substring(0, normalized.length() - String.valueOf(Integer.parseInt(normalized.replaceAll("(?i)^(highest|lowest)", ""))).length());
+            int upper = Integer.parseInt(normalized.replaceAll("(?i)^(highest|lowest)", ""));
+            int lower = Math.max(0, upper - 10);
+            if (upper <= 0) {
+                return null;
+            }
+            return builder.between(root.get(fieldName).as(Double.class), (double) lower, (double) upper);
+        }
+
+        if (normalized.matches("^\\d+(?:\\.\\d+)?$")) {
+            double numeric = Double.parseDouble(normalized);
+            return builder.equal(root.get(fieldName).as(Double.class), numeric);
+        }
+
+        return null;
+    }
+
+    private static Predicate buildStringInPredicate(CriteriaBuilder builder, jakarta.persistence.criteria.Expression<String> field, List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return builder.conjunction();
+        }
+        List<String> normalized = values.stream().filter(Objects::nonNull).map(String::trim).filter(v -> !v.isEmpty()).toList();
+        if (normalized.isEmpty()) {
+            return builder.conjunction();
+        }
+        return field.in(normalized);
+    }
+
+    @Override
+    public void replaceDashboardData(List<DashboardEntity> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        for (DashboardEntity entity : rows) {
+            entityManager.persist(entity);
+        }
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+    @Override
+    public void deleteDashboardRecords() {
+        entityManager.createQuery("DELETE FROM DashboardEntity").executeUpdate();
+    }
+
+    @Override
+    public List<DashboardEntity> findAllDashboardSummary() {
+        return entityManager.createQuery("SELECT d FROM DashboardEntity d", DashboardEntity.class).getResultList();
+    }
+
+    @Override
+    public int getCount() {
+        return ((Number) entityManager.createNativeQuery("SELECT COUNT(*) FROM dmastock.markets").getSingleResult()).intValue();
+    }
+
+    @Override
+    public List<MarketEntity> findMarketsByFilters(MarketFiltersDto filters) {
+        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
+        CriteriaQuery<MarketEntity> query = builder.createQuery(MarketEntity.class);
+        Root<MarketEntity> root = query.from(MarketEntity.class);
+        List<Predicate> predicates = new ArrayList<>();
+        if (filters.getSymbol() != null && !filters.getSymbol().isEmpty()) {
+            predicates.add(buildStringInPredicate(builder, root.get("symbol"), filters.getSymbol()));
+        }
+        if (filters.getConfidenceScore() != null && !filters.getConfidenceScore().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "confidenceScore", filters.getConfidenceScore()));
+        }
+        if (filters.getNextDayHigh() != null && !filters.getNextDayHigh().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "nextDayHigh", filters.getNextDayHigh()));
+        }
+        if(filters.getNextDayLow() != null && !filters.getNextDayLow().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "nextDayLow", filters.getNextDayLow()));
+        }
+        query.where(predicates.toArray(Predicate[]::new));
+        return entityManager.createQuery(query).getResultList();
     }
 
     @Override
@@ -97,7 +251,7 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
     }
 
     @Override
-    public List<CustomerEntity> findCustomers(CustomerEntity filters) {
+    public List<CustomerEntity> findCustomers(CustomersFilterDto filters) {
         CriteriaBuilder builder = entityManager.getCriteriaBuilder();
         CriteriaQuery<CustomerEntity> query = builder.createQuery(CustomerEntity.class);
         Root<CustomerEntity> root = query.from(CustomerEntity.class);
@@ -106,7 +260,17 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
             predicates.add(builder.equal(root.get("status"), filters.getStatus()));
         }
         if (filters.getCreatedDate() != null) {
-            predicates.add(builder.equal(root.get("createdDate"), filters.getCreatedDate()));
+            String createdDateStr = filters.getCreatedDate().trim();
+            try {
+                java.time.LocalDateTime dt = java.time.LocalDateTime.parse(createdDateStr);
+                predicates.add(builder.equal(root.get("createdDate"), dt));
+            } catch (java.time.format.DateTimeParseException ex) {
+                try {
+                    java.time.LocalDate d = java.time.LocalDate.parse(createdDateStr);
+                    predicates.add(builder.between(root.get("createdDate"), d.atStartOfDay(), d.plusDays(1).atStartOfDay()));
+                } catch (java.time.format.DateTimeParseException ex2) {
+                }
+            }
         }
         query.where(predicates.toArray(Predicate[]::new));
         query.select(root);
@@ -129,139 +293,190 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         return count;
     }
 
-
     @Override
-    public List<MarketEntity> findAllMarketData(MarketEntity filters) {
-        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
-        CriteriaQuery<MarketEntity> query = builder.createQuery(MarketEntity.class);
-        Root<MarketEntity> root = query.from(MarketEntity.class);
-        List<Predicate> predicates = new ArrayList<>();
-        addLikePredicate(builder, root, "name", filters.getName(), predicates);
-        addLikePredicate(builder, root, "description", filters.getDescription(), predicates);
-        addLikePredicate(builder, root, "status", filters.getStatus(), predicates);
-        addLikePredicate(builder, root, "symbol", filters.getSymbol(), predicates);
-        if (filters.getId() != null) {
-            predicates.add(builder.equal(root.get("id"), filters.getId()));
-        }
-        if (filters.getHistoricalDataId() != null) {
-            predicates.add(builder.equal(root.get("historicalDataId"), filters.getHistoricalDataId()));
-        }
-        if (filters.getFromDate() != null) {
-            predicates.add(builder.greaterThanOrEqualTo(root.<LocalDate>get("marketDate"), filters.getFromDate()));
-        }
-        if (filters.getToDate() != null) {
-            predicates.add(builder.lessThanOrEqualTo(root.<LocalDate>get("marketDate"), filters.getToDate()));
-        }
-        query.where(predicates.toArray(Predicate[]::new));
-        query.orderBy(builder.desc(root.get("marketDate")), builder.asc(root.get("symbol")));
-        return entityManager.createQuery(query).getResultList();
+    public List<MarketEntity> findAllMarketData(int offset, int limit) {
+        return entityManager.createQuery("SELECT m FROM MarketEntity m ORDER BY m.createdDate DESC, m.symbol", MarketEntity.class)
+                .setFirstResult(offset)
+                .setMaxResults(limit)
+                .getResultList();
     }
 
     @Override
+    public List<MarketEntity> findAllMarketData() {
+        return entityManager.createQuery("SELECT m FROM MarketEntity m", MarketEntity.class)
+                .getResultList();
+    }
+
+    @Override
+    @Transactional
     public void upsertHistoricalMarkets(List<MarketEntity> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        int count = 0;
         for (MarketEntity row : rows) {
-            MarketEntity existing = entityManager.createQuery(
-                            "SELECT m FROM MarketEntity m WHERE m.historicalDataId = :historicalDataId",
-                            MarketEntity.class)
-                    .setParameter("historicalDataId", row.getHistoricalDataId())
-                    .getResultStream()
-                    .findFirst()
-                    .orElse(null);
-            if (existing == null) {
+            try {
                 entityManager.persist(row);
-            } else {
-                row.setId(existing.getId());
-                entityManager.merge(row);
+                count++;
+                if (count % 100 == 0) {
+                    entityManager.flush();
+                    entityManager.clear();
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("Error persisting market row: " + (row.getSymbol() != null ? row.getSymbol() : "unknown") + " - " + e.getMessage(), e);
             }
         }
         entityManager.flush();
+        entityManager.clear();
     }
 
     @Override
-    public int deleteSyncedMarketHistoryBefore(LocalDate cutoffDate) {
-        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
-        CriteriaDelete<MarketEntity> delete = builder.createCriteriaDelete(MarketEntity.class);
-        Root<MarketEntity> root = delete.from(MarketEntity.class);
-        delete.where(
-                builder.isNotNull(root.get("historicalDataId")),
-                builder.lessThan(root.<LocalDate>get("marketDate"), cutoffDate));
-        return entityManager.createQuery(delete).executeUpdate();
+    @Transactional
+    public void upsertHistoricalMarketsEveryday(List<HistoricalMarketEntity> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        int count = 0;
+        for (HistoricalMarketEntity row : rows) {
+            try {
+                // Clear the ID since this is always a new historical snapshot
+                row.setId(null);
+                entityManager.persist(row);
+                count++;
+                if (count % 100 == 0) {
+                    entityManager.flush();
+                    entityManager.clear();
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("Error persisting historical market row: " + (row.getSymbol() != null ? row.getSymbol() : "unknown") + " - " + e.getMessage(), e);
+            }
+        }
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+    @Override
+    public void deleteHistoricalMarkets() {
+        entityManager.createQuery("DELETE FROM MarketEntity").executeUpdate();
     }
 
     @Override
     public List<PatternEntity> findAllPatternData(PatternEntity filters) {
-        return findTextFiltered(PatternEntity.class, "createdDate",
+        return findGenerated(PatternEntity.class,
                 textFilters("name", filters.getName(), "description", filters.getDescription(),
-                        "status", filters.getStatus()), filters.getId(), filters.getFromDate(), filters.getToDate());
+                        "status", filters.getStatus()),
+                null, filters.getFilterValue(), filters.getSymbol(), filters.getId(),
+                filters.getFromDate(), filters.getToDate());
     }
 
     @Override
-    public List<ReportEntity> findAllReports(ReportEntity filters) {
-        return findTextFiltered(ReportEntity.class, "createdDate",
-                textFilters("title", filters.getTitle(), "description", filters.getDescription(),
-                        "status", filters.getStatus()), filters.getId(), filters.getFromDate(), filters.getToDate());
+    @Transactional
+    public int replacePatterns(List<PatternEntity> rows) {
+        if(rows == null || rows.isEmpty()) {
+            return 0;
+        }
+       for(PatternEntity row : rows) {
+            entityManager.persist(row);
+        }
+        entityManager.flush();
+        entityManager.clear();
+        return rows.size();
     }
 
     @Override
-    public List<StockAnalyzerEntity> findAllStockAnalyses(StockAnalyzerEntity filters) {
+    public void truncatePatternRecords() {
+        entityManager.createQuery("DELETE FROM PatternEntity").executeUpdate();
+    }
+
+    @Override
+    @Transactional
+    public void saveAllHistoricalPatterns(List<HistoricalPatternEntity> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        int count = 0;
+        for (HistoricalPatternEntity row : rows) {
+            try {
+                // Clear the ID since this is always a new historical snapshot
+                row.setId(null);
+                entityManager.persist(row);
+                count++;
+                if (count % 100 == 0) {
+                    entityManager.flush();
+                    entityManager.clear();
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("Error persisting historical pattern row: " + (row.getName() != null ? row.getName() : "unknown") + " - " + e.getMessage(), e);
+            }
+        }
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+    @Override
+    public List<PatternEntity> findPatternByFilters(PatternFilterDto filters) {
         CriteriaBuilder builder = entityManager.getCriteriaBuilder();
-        CriteriaQuery<StockAnalyzerEntity> query = builder.createQuery(StockAnalyzerEntity.class);
-        Root<StockAnalyzerEntity> root = query.from(StockAnalyzerEntity.class);
+        CriteriaQuery<PatternEntity> query = builder.createQuery(PatternEntity.class);
+        Root<PatternEntity> root = query.from(PatternEntity.class);
         List<Predicate> predicates = new ArrayList<>();
-        addLikePredicate(builder, root, "symbol", filters.getSymbol(), predicates);
-        addLikePredicate(builder, root, "analysisResult", filters.getAnalysisResult(), predicates);
-        addLikePredicate(builder, root, "status", filters.getStatus(), predicates);
-        if (filters.getId() != null) {
-            predicates.add(builder.equal(root.get("id"), filters.getId()));
-        }
-        if (filters.getPredictionId() != null) {
-            predicates.add(builder.equal(root.get("predictionId"), filters.getPredictionId()));
-        }
-        if (filters.getPredictionRunId() != null) {
-            predicates.add(builder.equal(root.get("predictionRunId"), filters.getPredictionRunId()));
-        }
-        if (filters.getPredictionDirectionFilter() != null && !filters.getPredictionDirectionFilter().isBlank()) {
-            predicates.add(builder.equal(builder.lower(root.get("predictionDirection")),
-                    filters.getPredictionDirectionFilter().trim().toLowerCase(Locale.ROOT)));
-        }
-        if (filters.getMinimumConfidence() != null) {
-            predicates.add(builder.greaterThanOrEqualTo(root.<Double>get("confidencePercent"), filters.getMinimumConfidence()));
-        }
-        if (filters.getMaximumConfidence() != null) {
-            predicates.add(builder.lessThanOrEqualTo(root.<Double>get("confidencePercent"), filters.getMaximumConfidence()));
-        }
-        if (filters.getFromDate() != null) {
-            predicates.add(builder.greaterThanOrEqualTo(root.<LocalDateTime>get("createdDate"),
-                    filters.getFromDate().atStartOfDay()));
-        }
-        if (filters.getToDate() != null) {
-            predicates.add(builder.lessThan(root.<LocalDateTime>get("createdDate"),
-                    filters.getToDate().plusDays(1).atStartOfDay()));
+      if(filters.getPatterns() != null) {
+            predicates.add(builder.equal(root.get("name"), filters.getPatterns().stream().findFirst().orElse(null)));
         }
         query.where(predicates.toArray(Predicate[]::new));
-        query.orderBy(builder.desc(root.get("createdDate")), builder.desc(root.get("id")));
         return entityManager.createQuery(query).getResultList();
     }
 
     @Override
-    public void upsertStockAnalyzerRows(List<StockAnalyzerEntity> rows) {
-        for (StockAnalyzerEntity row : rows) {
-            StockAnalyzerEntity existing = entityManager.createQuery(
-                            "SELECT s FROM StockAnalyzerEntity s WHERE s.predictionId = :predictionId",
-                            StockAnalyzerEntity.class)
-                    .setParameter("predictionId", row.getPredictionId())
-                    .getResultStream()
-                    .findFirst()
-                    .orElse(null);
-            if (existing == null) {
-                entityManager.persist(row);
-            } else {
-                row.setId(existing.getId());
-                entityManager.merge(row);
+    public List<ReportEntity> findAllReports(ReportEntity filters) {
+        return findGenerated(ReportEntity.class,
+                textFilters("title", filters.getTitle(), "description", filters.getDescription(),
+                        "status", filters.getStatus()),
+                null, filters.getFilterValue(), filters.getSymbol(), filters.getId(),
+                filters.getFromDate(), filters.getToDate());
+    }
+
+    @Override
+    public int replaceReports(List<ReportEntity> rows) {
+        return replaceGenerated("ReportEntity", rows, true);
+    }
+
+    private <T> List<T> findGenerated(Class<T> entityType, Map<String, String> likeFilters, String filterType,
+                                      String filterValue, String symbol, Object id, LocalDate fromDate,
+                                      LocalDate toDate) {
+        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
+        CriteriaQuery<T> query = builder.createQuery(entityType);
+        Root<T> root = query.from(entityType);
+        List<Predicate> predicates = new ArrayList<>();
+        likeFilters.forEach((field, value) -> addLikePredicate(builder, root, field, value, predicates));
+        addExactIgnoreCasePredicate(builder, root, "filterType", filterType, predicates);
+        addExactIgnoreCasePredicate(builder, root, "filterValue", filterValue, predicates);
+        addLikePredicate(builder, root, "symbol", symbol, predicates);
+        if (id != null) {
+            predicates.add(builder.equal(root.get("id"), id));
+        }
+        addDateRange(builder, root, "createdDate", fromDate, toDate, predicates);
+        query.where(predicates.toArray(Predicate[]::new));
+        query.orderBy(builder.asc(root.get("filterValue")), builder.asc(root.get("rankNo")),
+                builder.desc(root.get("createdDate")));
+        return entityManager.createQuery(query).getResultList();
+    }
+
+    // Reports and patterns tables may hold other rows, so only generated rows (with a filter value) are replaced.
+    private int replaceGenerated(String entityName, List<?> rows, boolean onlyGenerated) {
+        entityManager.createQuery("DELETE FROM " + entityName + " e"
+                + (onlyGenerated ? " WHERE e.filterValue IS NOT NULL" : "")).executeUpdate();
+        int saved = 0;
+        for (Object row : rows) {
+            entityManager.persist(row);
+            if (++saved % 500 == 0) {
+                entityManager.flush();
+                entityManager.clear();
             }
         }
         entityManager.flush();
+        return saved;
     }
+
 
     @Override
     public List<PaymentEntity> fetchAllPayments() {
@@ -269,61 +484,39 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
     }
 
     @Override
-    public List<PaymentEntity> findPaymentPlans(PaymentEntity filters) {
-        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
-        CriteriaQuery<PaymentEntity> query = builder.createQuery(PaymentEntity.class);
-        Root<PaymentEntity> root = query.from(PaymentEntity.class);
-        List<Predicate> predicates = new ArrayList<>();
-        if (filters.getPaymentType() != null) {
-            predicates.add(builder.equal(root.get("status"), filters.getStatus()));
-        }
-        if (filters.getPaymentType() != null) {
-            predicates.add(builder.equal(root.get("paymentType"), filters.getPaymentType()));
-        }
-        if (filters.getCreatedDate() != null) {
-            predicates.add(builder.equal(root.get("createdDate"), filters.getCreatedDate()));
-        }
-        if (filters.getUserName() != null) {
-            predicates.add(builder.equal(root.get("userName"), filters.getUserName()));
-        }
-        query.where(predicates.toArray(Predicate[]::new));
-        return entityManager.createQuery(query).getResultList();
-    }
-
-    @Override
+    @Transactional
     public void upsertPaymentPlans(List<PaymentEntity> plans) {
+        if (plans == null || plans.isEmpty()) {
+            return;
+        }
         for (PaymentEntity plan : plans) {
-            PaymentEntity existing = entityManager.createQuery(
-                            "SELECT p FROM PaymentEntity p WHERE p.recordType = :recordType AND p.planId = :planId",
-                            PaymentEntity.class)
-                    .setParameter("recordType", "SUBSCRIPTION")
-                    .setParameter("planId", plan.getPlanId())
-                    .getResultStream()
-                    .findFirst()
-                    .orElse(null);
-            if (existing == null) {
+            PaymentEntity existing = entityManager.find(PaymentEntity.class, plan.getPlanId());
+            if (!Objects.nonNull(existing)) {
                 entityManager.persist(plan);
             } else {
-                plan.setId(existing.getId());
                 entityManager.merge(plan);
             }
         }
         entityManager.flush();
+
     }
 
-    private <T> List<T> findTextFiltered(Class<T> entityType, String sortField, Map<String, String> filters,
-                                         Object id, LocalDate fromDate, LocalDate toDate) {
+    @Override
+    public List<PaymentEntity> findPaymentPlans(PaymentsFilterDto filters) {
         CriteriaBuilder builder = entityManager.getCriteriaBuilder();
-        CriteriaQuery<T> query = builder.createQuery(entityType);
-        Root<T> root = query.from(entityType);
+        CriteriaQuery<PaymentEntity> query = builder.createQuery(PaymentEntity.class);
+        Root<PaymentEntity> root = query.from(PaymentEntity.class);
         List<Predicate> predicates = new ArrayList<>();
-        filters.forEach((field, value) -> addLikePredicate(builder, root, field, value, predicates));
-        if (id != null) {
-            predicates.add(builder.equal(root.get("id"), id));
+        if (filters.getUserName() != null) {
+            predicates.add(builder.equal(root.get("userName"), filters.getUserName()));
         }
-        addDateRange(builder, root, sortField, fromDate, toDate, predicates);
+        if (filters.getStatus() != null) {
+            predicates.add(builder.equal(root.get("status"), filters.getStatus()));
+        }
+        if(filters.getUserName() != null && filters.getStatus() != null) {
+            predicates.add(builder.and(builder.equal(root.get("userName"), filters.getUserName())));
+        }
         query.where(predicates.toArray(Predicate[]::new));
-        query.orderBy(builder.desc(root.get(sortField)));
         return entityManager.createQuery(query).getResultList();
     }
 
@@ -347,6 +540,13 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         }
     }
 
+    private static <T> void addExactIgnoreCasePredicate(CriteriaBuilder builder, Root<T> root, String field,
+                                                        String value, List<Predicate> predicates) {
+        if (value != null && !value.isBlank()) {
+            predicates.add(builder.equal(builder.lower(root.get(field)), value.trim().toLowerCase(Locale.ROOT)));
+        }
+    }
+
     private static <T> void addLikePredicate(CriteriaBuilder builder, Root<T> root, String field,
                                              String value, List<Predicate> predicates) {
         if (value != null && !value.isBlank()) {
@@ -356,87 +556,16 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
     }
 
     @Override
+    @Transactional
     public void savePrediction(List<PredictionEntity> predictionDto) {
+        if (predictionDto == null || predictionDto.isEmpty()) {
+            return;
+        }
         for (PredictionEntity entity : predictionDto) {
             entityManager.persist(entity);
         }
         entityManager.flush();
-    }
-
-    @Override
-    public List<PredictionEntity> findAllPredictions() {
-        return entityManager.createQuery("SELECT p FROM PredictionEntity p ORDER BY p.id", PredictionEntity.class).getResultList();
-    }
-
-    @Override
-    public void savePredictionRun(PredictionRunEntity predictionRun) {
-        entityManager.persist(predictionRun);
-        entityManager.flush();
-    }
-
-    @Override
-    public PredictionRunEntity findLatestPredictionRun() {
-        return entityManager.createQuery(
-                        "SELECT r FROM PredictionRunEntity r ORDER BY r.createdAt DESC, r.id DESC",
-                        PredictionRunEntity.class)
-                .setMaxResults(1)
-                .getResultStream()
-                .findFirst()
-                .orElse(null);
-    }
-
-    @Override
-    public List<PredictionRunEntity> findPredictionRuns(PredictionRunEntity filters) {
-        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
-        CriteriaQuery<PredictionRunEntity> query = builder.createQuery(PredictionRunEntity.class);
-        Root<PredictionRunEntity> root = query.from(PredictionRunEntity.class);
-        List<Predicate> predicates = new ArrayList<>();
-        if (filters != null && filters.getStartDate() != null) {
-            predicates.add(builder.greaterThanOrEqualTo(root.get("startDate"), filters.getStartDate()));
-        }
-        if (filters != null && filters.getEndDate() != null) {
-            predicates.add(builder.lessThanOrEqualTo(root.get("endDate"), filters.getEndDate()));
-        }
-        query.where(predicates.toArray(Predicate[]::new));
-        query.orderBy(builder.desc(root.get("createdAt")), builder.desc(root.get("id")));
-        int limit = filters == null || filters.getLimit() == null ? 20 : filters.getLimit();
-        return entityManager.createQuery(query).setMaxResults(Math.min(100, Math.max(1, limit))).getResultList();
-    }
-
-    @Override
-    public List<PredictionEntity> findPredictions(UUID runId, PredictionEntity filters) {
-        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
-        CriteriaQuery<PredictionEntity> query = builder.createQuery(PredictionEntity.class);
-        Root<PredictionEntity> root = query.from(PredictionEntity.class);
-        List<Predicate> predicates = new ArrayList<>();
-        predicates.add(builder.equal(root.get("runId"), runId));
-        addLikePredicate(builder, root, "symbol", filters.getSymbol(), predicates);
-        if (filters.getId() != null) {
-            predicates.add(builder.equal(root.get("id"), filters.getId()));
-        }
-        if (filters.getPredictionDirectionFilter() != null && !filters.getPredictionDirectionFilter().isBlank()) {
-            predicates.add(builder.equal(builder.lower(root.get("prediction_direction")),
-                    filters.getPredictionDirectionFilter().trim().toLowerCase(Locale.ROOT)));
-        }
-        if (filters.getMinimumConfidence() != null) {
-            predicates.add(builder.greaterThanOrEqualTo(
-                    root.<Double>get("confidence_percent"), filters.getMinimumConfidence()));
-        }
-        if (filters.getMaximumConfidence() != null) {
-            predicates.add(builder.lessThanOrEqualTo(
-                    root.<Double>get("confidence_percent"), filters.getMaximumConfidence()));
-        }
-        if (filters.getFromDate() != null) {
-            predicates.add(builder.greaterThanOrEqualTo(
-                    root.<LocalDate>get("created_date"), filters.getFromDate()));
-        }
-        if (filters.getToDate() != null) {
-            predicates.add(builder.lessThanOrEqualTo(
-                    root.<LocalDate>get("created_date"), filters.getToDate()));
-        }
-        query.where(predicates.toArray(Predicate[]::new));
-        query.orderBy(builder.desc(root.get("confidence_percent")), builder.asc(root.get("symbol")));
-        return entityManager.createQuery(query).getResultList();
+        entityManager.clear();
     }
 
     /* Below all implemented Methods are Plan related Queries*/
@@ -448,8 +577,11 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         entityManager.flush();
     }
 
+    @Override
     public PlanEntity findByUserName(String name) {
-        return entityManager.createQuery("SELECT p FROM PlanEntity p WHERE p.name = :name", PlanEntity.class)
+        // The PlanEntity stores the associated user's identifier in the userName column.
+        // Query by userName (not by plan name) to locate the user's plan.
+        return entityManager.createQuery("SELECT p FROM PlanEntity p WHERE p.userName = :name", PlanEntity.class)
                 .setParameter("name", name)
                 .getResultList().stream().findFirst().orElse(null);
     }
@@ -503,7 +635,7 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
 
     @Override
     public void truncateAudiLogs() {
-        entityManager.createQuery("TRUNCATE TABLE AuditLogEntity").executeUpdate();
+        entityManager.createQuery("DELETE FROM AuditLogEntity").executeUpdate();
     }
 
     /* Below written queries all for statement related quires*/
@@ -520,7 +652,7 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
     }
 
     @Override
-    public List<StatementEntity> findStatements(StatementEntity filters) {
+    public List<StatementEntity> findStatements(StatementFiltersDto filters) {
         CriteriaBuilder builder = entityManager.getCriteriaBuilder();
         CriteriaQuery<StatementEntity> query = builder.createQuery(StatementEntity.class);
         Root<StatementEntity> root = query.from(StatementEntity.class);
@@ -538,10 +670,10 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
             predicates.add(builder.equal(root.get("tradeType"), filters.getTradeType()));
         }
         if (filters.getFromDate() != null) {
-            predicates.add(builder.equal(root.get("fromDate"), filters.getFromDate()));
+            predicates.add(builder.greaterThanOrEqualTo(root.get("tradeDate"), filters.getFromDate()));
         }
         if (filters.getToDate() != null) {
-            predicates.add(builder.equal(root.get("toDate"), filters.getToDate()));
+            predicates.add(builder.lessThanOrEqualTo(root.get("tradeDate"), filters.getToDate()));
         }
         query.where(predicates.toArray(Predicate[]::new));
         return entityManager.createQuery(query).getResultList();
@@ -562,25 +694,80 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
                 .getResultList();
     }
 
+    // Historical Prediction Methods
     @Override
-    public List<StockAnalyzerFiltersEntity> getStockAnalyzerFilters() {
-        return entityManager.createQuery(
-                        "SELECT s FROM StockAnalyzerFiltersEntity s ORDER BY s.id", StockAnalyzerFiltersEntity.class)
-                .getResultList();
+    @Transactional
+    public void saveHistoricalPrediction(List<HistoricalPredictionEntity> predictions) {
+        if (predictions == null || predictions.isEmpty()) {
+            return;
+        }
+        for (HistoricalPredictionEntity prediction : predictions) {
+            if (prediction.getId() != null) {
+                prediction.setId(null);
+            }
+            entityManager.persist(prediction);
+        }
+        entityManager.flush();
+        entityManager.clear();
     }
 
     @Override
-    public List<MarketFiltersEntity> getStockMarketFilters() {
-        return entityManager.createQuery(
-                        "SELECT m FROM MarketFiltersEntity m ORDER BY m.id", MarketFiltersEntity.class)
-                .getResultList();
+    public List<PredictionEntity> findAllPredictions() {
+        return entityManager.createQuery("SELECT p FROM PredictionEntity p", PredictionEntity.class).getResultList();
     }
 
     @Override
-    public List<MarketOverviewFiltersEntity> getDashBoardFilters() {
-        return entityManager.createQuery(
-                        "SELECT m FROM MarketOverviewFiltersEntity m ORDER BY m.id", MarketOverviewFiltersEntity.class)
-                .getResultList();
+    @Transactional
+    public void deletePredictionRecords() {
+        entityManager.createQuery("DELETE FROM PredictionEntity").executeUpdate();
     }
+
+    @Override
+    public List<PredictionEntity> findPredictionsByFilters(PredictionFiltersDto filters) {
+        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
+        CriteriaQuery<PredictionEntity> query = builder.createQuery(PredictionEntity.class);
+        Root<PredictionEntity> root = query.from(PredictionEntity.class);
+        List<Predicate> predicates = new ArrayList<>();
+        if (filters.getSymbol() != null && !filters.getSymbol().isEmpty()) {
+            predicates.add(buildStringInPredicate(builder, root.get("symbol"), filters.getSymbol()));
+        }
+        if (filters.getConfidenceScore() != null && !filters.getConfidenceScore().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "confidencePercent", filters.getConfidenceScore()));
+        }
+        if (filters.getNextDayHigh() != null && !filters.getNextDayHigh().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "predictedHigh", filters.getNextDayHigh()));
+        }
+        if(filters.getNextDayLow() != null && !filters.getNextDayLow().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "predictedLow", filters.getNextDayLow()));
+        }
+        query.where(predicates.toArray(Predicate[]::new));
+        return entityManager.createQuery(query).getResultList();
+    }
+
+    // Historical Dashboard Repository Methods
+
+    @Override
+    @Transactional
+    public void saveAllHistoricalDashboards(List<HistoricalDashboardEntity> entities) {
+        if (entities == null || entities.isEmpty()) {
+            return;
+        }
+        int count = 0;
+        for (HistoricalDashboardEntity entity : entities) {
+            if (entity.getId() != null) {
+                entity.setId(null);
+            }
+            entityManager.persist(entity);
+            count++;
+            if (count % 100 == 0) {
+                entityManager.flush();
+                entityManager.clear();
+            }
+        }
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+
 
 }

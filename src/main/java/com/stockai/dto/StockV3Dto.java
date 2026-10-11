@@ -18,6 +18,17 @@ public class StockV3Dto extends StockV2Dto {
     private Double wkhi;//52weeks High
     private Double wklo;//52weeks low
     private Double volIncPer; //Volumn increment percent
+
+    // fallback values used when AngelOne omits them in some responses
+    private Double previousClose;
+    private Double deliveryPercent;
+    private Long deliveryQuantity;
+    private Long numberOfTrades;
+    private Double percentageChange;
+    private Double pointsChange;
+    private Double weekHigh;
+    private Double weekLow;
+
     @JsonIgnore
     private Double distFrom52WksHi;
     @JsonIgnore

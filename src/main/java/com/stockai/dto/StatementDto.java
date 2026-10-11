@@ -26,7 +26,6 @@ public class StatementDto {
     private String tradeType;
     private BigDecimal quantity;
     private BigDecimal unitPrice;
-    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private BigDecimal totalAmount;
     private LocalDate tradeDate;
     private LocalDate fromDate;

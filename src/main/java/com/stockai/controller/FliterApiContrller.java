@@ -37,16 +37,16 @@ public class FliterApiContrller {
     }
 
     @GetMapping("/stock-market-filters")
-    public ResponseEntity<List<MarketFiltersDto>> getStockMarketFilters(){
-        List<MarketFiltersDto> response = filtersService.getStockMarketFilters();
+    public ResponseEntity<MarketFiltersDto> getStockMarketFilters(){
+        MarketFiltersDto response = filtersService.getStockMarketFilters();
         if(response==null)
             return new ResponseEntity<>(HttpStatus.NOT_FOUND);
         return new ResponseEntity<>(response, HttpStatus.OK);
     }
 
     @GetMapping("/stock-analyzer-filters")
-    public ResponseEntity<List<StockAnalyzerFiltersDto>> getStockAnalyzerFilters(){
-        List<StockAnalyzerFiltersDto> response = filtersService.getStockAnalyzerFilters();
+    public ResponseEntity<StockPredictionFiltersDto> getStockAnalyzerFilters(){
+        StockPredictionFiltersDto response = filtersService.getStockPredictionFilters();
         if(response==null)
             return new ResponseEntity<>(HttpStatus.NOT_FOUND);
         return new ResponseEntity<>(response, HttpStatus.OK);
@@ -54,8 +54,8 @@ public class FliterApiContrller {
     }
 
     @GetMapping("/dashboard-filters")
-    public ResponseEntity<List<MarketFiltersOverviewDto>> getDashBoardFilters(){
-        List<MarketFiltersOverviewDto> response = filtersService.getDashBoardFilters();
+    public ResponseEntity<DashboardFilterDto> getDashBoardFilters(){
+        DashboardFilterDto response = filtersService.getDashBoardFilters();
         if(response==null)
             return new ResponseEntity<>(HttpStatus.NOT_FOUND);
         return new ResponseEntity<>(response, HttpStatus.OK);

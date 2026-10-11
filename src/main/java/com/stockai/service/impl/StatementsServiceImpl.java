@@ -1,6 +1,7 @@
 package com.stockai.service.impl;
 
 import com.stockai.dto.StatementDto;
+import com.stockai.dto.StatementFiltersDto;
 import com.stockai.entity.StatementEntity;
 import com.stockai.repository.StatementRepository;
 import com.stockai.service.interf.StatementsService;
@@ -52,22 +53,22 @@ public class StatementsServiceImpl implements StatementsService {
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public List<StatementDto> fetchStatements(StatementDto filters) {
-        StatementEntity entity = new StatementEntity();
-        BeanUtils.copyProperties(filters,entity);
-        List<StatementEntity> entities = statementRepository.findStatements(entity);
+    public List<StatementDto> fetchStatements(StatementFiltersDto filters) {
+        log.info("Fetching statements with filters: {}", filters);
+        List<StatementEntity> entities = statementRepository.findStatements(filters);
         List<StatementDto> response = new ArrayList<>();
         for(StatementEntity model: entities){
             StatementDto dto = new StatementDto();
             BeanUtils.copyProperties(model,dto);
             response.add(dto);
         }
+        log.info("Fetched {} statements based on filters", response.size());
         return response;
     }
 
     @Override
     public List<StatementDto> fetchAllStatements() {
+        log.info("Fetching all statements");
        List<StatementEntity> allStatements = statementRepository.findAllStatements();
        List<StatementDto> response = new ArrayList<>();
        for(StatementEntity entity: allStatements){
@@ -75,6 +76,7 @@ public class StatementsServiceImpl implements StatementsService {
            BeanUtils.copyProperties(entity,dto);
            response.add(dto);
        }
+       log.info("Fetched {} statements in total", response.size());
        return response;
     }
 

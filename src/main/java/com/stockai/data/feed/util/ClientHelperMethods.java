@@ -31,6 +31,10 @@ public class ClientHelperMethods {
         List<String> stockNamesList = instrumentsRepository.findAllInstruments();
         LocalDate lastTradingDay = StockUtil.getLastTradingDay();
         LocalDateTime startDate = LocalDate.now().atStartOfDay();
+        if(lastTradingDay.atStartOfDay() != startDate ) {
+            log.info("Last trading day is not same as start date, hence skipping the daily stock data update.");
+            return "Last trading day is not same as start date, hence skipping the daily stock data update.";
+        }
         List<InstrumentsDto> instruments = InstrumentsMap.instrumentsDto(stockNamesList);
         LocalDateTime endDate = lastTradingDay.atTime(LocalTime.now());
         int count = dailyStockService.dailyStockServiceCount();

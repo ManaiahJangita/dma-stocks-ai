@@ -12,39 +12,57 @@ import java.util.UUID;
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class MarketDto {
-    private UUID id;
+    private Integer id;
+
     private String name;
-    private String description;
     private String status;
-    private LocalDateTime createdDate;
-    private Long historicalDataId;
+
     private String symbol;
+
     private Double open;
     private Double high;
     private Double low;
     private Double close;
-    private Double previousClose;
+
     private Long volume;
     private Double per;
     private Double ptsC;
+
+    private LocalDateTime historicalCreatedDate;
+    private LocalDate historicalUpdateDate;
+
+    private LocalDate createdDate;
+    private LocalDate updatedDate;
+
     private LocalDate marketDate;
-    private String recordType;
-    private Long predictionId;
-    private UUID predictionRunId;
-    private LocalDate predictionDate;
-    private Double predictionClose;
-    private String predictionDirection;
-    private Double predictionClosePercentage;
-    private Double predictedHigh;
-    private Double predictedHighPercentage;
-    private Double predictedLow;
-    private Double predictedLowPercentage;
-    private Double confidencePercent;
-    private Double upProbabilityPercent;
-    private Double downProbabilityPercent;
-    private LocalDate fromDate;
-    private LocalDate toDate;
-    private String predictionDirectionFilter;
-    private Double minimumConfidence;
-    private Double maximumConfidence;
+
+    private Double previousClose;
+    private Double changePercent;
+
+    private Long avgVolume;
+
+    private Double sma5;
+    private Double sma10;
+    private Double sma20;
+    private Double sma50;
+
+    private Double ema12;
+    private Double ema26;
+
+    private Double rsi14;
+    private Double volumeRatio;
+    private Double return1d;
+    private Double return5d;
+    private Double return10d;
+    private Double return30d;
+    private Double distanceFrom52wHighPct;
+    private Double distanceFrom52wLowPct;
+    private Double distanceFromSma20Pct;
+    private Boolean breakoutFlag;
+    private String trendLabel;
+    private Double nextDayHigh;
+    private Double nextDayReturnPct;
+    private Double nextDayLow;
+    private Double nextDayLowReturnPct;
+    private Double confidenceScore;
 }

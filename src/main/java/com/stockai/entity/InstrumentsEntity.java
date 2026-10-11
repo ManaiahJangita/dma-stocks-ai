@@ -25,8 +25,6 @@ public class InstrumentsEntity {
     @Column(nullable = false)
     private String name;
 
-    private Date expiry;
-
     @Column(nullable = false)
     private Double strike = 0.0;
 

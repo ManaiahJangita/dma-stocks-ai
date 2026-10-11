@@ -1,23 +1,185 @@
 package com.stockai.apipridection.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockai.entity.HistoricalDataEntity;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import org.springframework.stereotype.Service;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class StockAIService {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final String PYTHON_MODEL_SCRIPT = "python/stock_prediction_model_v2.py";
+    private static final String PYTHON_MODEL_FILE = "python/models/stock_prediction_model.joblib";
+
+    public enum ModelType {
+        XGBOOST,
+        LIGHTGBM,
+        LOGISTIC_FALLBACK
+    }
+
+    private static final ModelType DEFAULT_MODEL_TYPE = ModelType.XGBOOST;
     private static final int LOOKBACK_DAYS = 20;
-    private static final int FEATURE_COUNT = 7;
+    private static final int FEATURE_COUNT = 10;
     private static final int MIN_TRAINING_SAMPLES = 40;
     private static final int MIN_VALIDATION_SAMPLES = 10;
     private static final double TRAINING_FRACTION = 0.8;
 
     public AnalysisResult analyze(List<HistoricalDataEntity> history) {
+        return analyze(history, DEFAULT_MODEL_TYPE);
+    }
+
+    public AnalysisResult analyze(List<HistoricalDataEntity> history, ModelType modelType) {
+        if (modelType == null) {
+            modelType = DEFAULT_MODEL_TYPE;
+        }
+        try {
+            if (modelType == ModelType.XGBOOST || modelType == ModelType.LIGHTGBM) {
+                return analyzeViaPython(history, modelType);
+            }
+            return analyzeWithLogistic(history);
+        } catch (Exception ex) {
+            return analyzeWithLogistic(history);
+        }
+    }
+
+    private AnalysisResult analyzeViaPython(List<HistoricalDataEntity> history, ModelType modelType) throws IOException, InterruptedException {
+        if (history == null || history.isEmpty()) {
+            return null;
+        }
+
+        Path projectRoot = Path.of(System.getProperty("user.dir"));
+        Path script = projectRoot.resolve(PYTHON_MODEL_SCRIPT);
+        Path modelPath = projectRoot.resolve(PYTHON_MODEL_FILE);
+
+        if (!Files.exists(script)) {
+            throw new IOException("Python model script not found: " + script);
+        }
+
+        Path csvFile = Files.createTempFile("stock_prediction_input", ".csv");
+        Files.writeString(csvFile, buildCsv(history), StandardCharsets.UTF_8);
+
+        if (!Files.exists(modelPath)) {
+            runPython(script, List.of("train", "--input", csvFile.toString(), "--model-name", modelType.name().toLowerCase(Locale.ROOT)));
+        }
+
+        String jsonOutput = runPython(script, List.of(
+                "predict",
+                "--input", csvFile.toString(),
+                "--model-path", modelPath.toString(),
+                "--model-name", modelType.name().toLowerCase(Locale.ROOT)
+        ));
+
+        if (jsonOutput == null || jsonOutput.isBlank()) {
+            throw new IOException("Python model returned empty output");
+        }
+
+        var prediction = OBJECT_MAPPER.readTree(jsonOutput);
+        double predictedHigh = prediction.has("predicted_high") && !prediction.get("predicted_high").isNull()
+                ? prediction.get("predicted_high").asDouble() : history.get(history.size() - 1).getHigh();
+        double predictedHighChangePct = prediction.has("predicted_high_change_pct")
+                ? prediction.get("predicted_high_change_pct").asDouble() : 0.0;
+        double currentClose = prediction.has("current_close")
+                ? prediction.get("current_close").asDouble() : history.get(history.size() - 1).getClose();
+        
+        String direction = predictedHighChangePct > 0.5 ? "Up" : "Down";
+        double confidence = Math.min(100.0, Math.abs(predictedHighChangePct) + 50.0);
+
+        return new AnalysisResult(
+                predictedHigh,
+                Math.max(0.01, currentClose * 0.98),
+                currentClose,
+                predictedHighChangePct,
+                -0.5,
+                0.0,
+                direction,
+                confidence,
+                predictedHighChangePct > 0.5 ? confidence : (100.0 - confidence),
+                predictedHighChangePct > 0.5 ? (100.0 - confidence) : confidence,
+                0,
+                0
+        );
+    }
+
+    private String runPython(Path script, List<String> args) throws IOException, InterruptedException {
+        List<String> command = new ArrayList<>();
+        String pythonCommand = findPythonExecutable();
+        command.add(pythonCommand);
+        command.add(script.toString());
+        command.addAll(args);
+
+        Process process = new ProcessBuilder(command)
+                .redirectErrorStream(true)
+                .start();
+
+        StringBuilder output = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append(System.lineSeparator());
+            }
+        }
+
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new IOException("Python process exited with code " + exitCode + ": " + output);
+        }
+        return output.toString().trim();
+    }
+
+    private String findPythonExecutable() {
+        String[] candidates = {"python", "python3"};
+        for (String candidate : candidates) {
+            try {
+                Process process = new ProcessBuilder(candidate, "--version").start();
+                int exitCode = process.waitFor();
+                if (exitCode == 0) {
+                    return candidate;
+                }
+            } catch (Exception ignored) {
+                // continue to next candidate
+            }
+        }
+        throw new IllegalStateException("No python executable found in PATH");
+    }
+
+    private String buildCsv(List<HistoricalDataEntity> history) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("symbol,created_date,open,high,low,close,volume").append(System.lineSeparator());
+        for (HistoricalDataEntity row : history) {
+            if (row == null) {
+                continue;
+            }
+            builder.append(row.getSymbol())
+                    .append(',')
+                    .append(row.getCreatedDate())
+                    .append(',')
+                    .append(row.getOpen())
+                    .append(',')
+                    .append(row.getHigh())
+                    .append(',')
+                    .append(row.getLow())
+                    .append(',')
+                    .append(row.getClose())
+                    .append(',')
+                    .append(row.getVolume())
+                    .append(System.lineSeparator());
+        }
+        return builder.toString();
+    }
+
+    private AnalysisResult analyzeWithLogistic(List<HistoricalDataEntity> history) {
         List<Sample> samples = new ArrayList<>();
         for (int index = LOOKBACK_DAYS; index < history.size() - 1; index++) {
             double[] features = features(history, index);
@@ -100,6 +262,9 @@ public class StockAIService {
         }
         HistoricalDataEntity current = history.get(index);
         HistoricalDataEntity previous = history.get(index - 1);
+        HistoricalDataEntity dayFive = history.get(Math.max(0, index - 5));
+        HistoricalDataEntity dayTen = history.get(Math.max(0, index - 10));
+        HistoricalDataEntity dayTwenty = history.get(Math.max(0, index - LOOKBACK_DAYS));
         double close = current.getClose();
         double open = current.getOpen();
         if (close <= 0 || open <= 0 || previous.getClose() <= 0) {
@@ -112,14 +277,27 @@ public class StockAIService {
         }
         averageVolume /= LOOKBACK_DAYS;
 
+        double shortMomentum = percentage(close, previous.getClose());
+        double mediumMomentum = percentage(close, dayFive.getClose());
+        double longMomentum = percentage(close, dayTwenty.getClose());
+        double rangePercent = (current.getHigh() - current.getLow()) / close * 100.0;
+        double openGap = percentage(open, previous.getClose());
+        double closeGap = percentage(close, open);
+        double volumeSignal = averageVolume > 0 ? current.getVolume() / averageVolume - 1.0 : 0.0;
+        double volatility = Math.abs(shortMomentum) + Math.abs(mediumMomentum);
+        double trendStrength = percentage(current.getHigh(), dayTen.getClose()) + percentage(current.getLow(), dayTen.getClose());
+
         return new double[]{
-                percentage(close, previous.getClose()),
-                percentage(close, history.get(index - 5).getClose()),
-                percentage(close, history.get(index - LOOKBACK_DAYS).getClose()),
-                (current.getHigh() - current.getLow()) / close * 100.0,
-                percentage(open, previous.getClose()),
-                percentage(close, open),
-                averageVolume > 0 ? current.getVolume() / averageVolume - 1.0 : 0.0
+                shortMomentum,
+                mediumMomentum,
+                longMomentum,
+                rangePercent,
+                openGap,
+                closeGap,
+                volumeSignal,
+                volatility,
+                trendStrength,
+                percentage(current.getClose(), dayTwenty.getClose())
         };
     }
 

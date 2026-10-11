@@ -5,42 +5,44 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class PredictionDto {
-    private Long id;
+    private UUID id;
     private UUID runId;
-    private String symbol;
-    private double open;
-    private double high;
-    private double low;
-    private double close;
-    private double volume;
-    private double per;
-    private double ptsC;
-    private String createdDate;
-    private double todayValue;
-    private String mode;
+    private LocalDate runStartDate;
+    private LocalDate runEndDate;
+    private LocalDateTime runCreatedAt;
+    private Integer predictionsSaved;
+    private Integer skippedSymbols;
+    private Integer validationSamples;
+    private Integer correctValidationPredictions;
+    private Double validationAccuracyPercent;
+    private String accuracyMetric;
 
-    // Prediction properties
-    private String predictionDate;
-    private double predictionClose;
+    private String symbol;
+    private Double open;
+    private Double high;
+    private Double low;
+    private Double close;
+    private Double volume;
+    private Double per;
+    private Double ptsC;
+    private LocalDate createdDate;
+
+    private LocalDate predictionDate;
+    private Double predictionClose;
     private String predictionDirection;
-    private double predictionClosePercentage;
-    private double predictedHigh;
-    private double predictedHighPercentage;
-    private double predictedLow;
-    private double predictedLowPercentage;
-    private double increasePercentage;
-    private double decreasePercentage;
-    private double confidencePercent;
-    private double upProbabilityPercent;
-    private double downProbabilityPercent;
-    private LocalDate fromDate;
-    private LocalDate toDate;
-    private Double minimumConfidence;
-    private Double maximumConfidence;
+    private Double predictionClosePercentage;
+    private Double predictedHigh;
+    private Double predictedHighPercentage;
+    private Double predictedLow;
+    private Double predictedLowPercentage;
+    private Double confidencePercent;
+    private Double upProbabilityPercent;
+    private Double downProbabilityPercent;
 }

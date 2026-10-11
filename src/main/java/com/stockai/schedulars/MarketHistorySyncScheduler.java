@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Component
 public class MarketHistorySyncScheduler extends BasicJob {
+
     private final MarketsService marketsService;
 
     public MarketHistorySyncScheduler(MarketsService marketsService) {
@@ -17,12 +18,12 @@ public class MarketHistorySyncScheduler extends BasicJob {
     }
 
     @Override
-    @Scheduled(cron = "0 30 17 ? * MON-FRI")
+    @Scheduled(cron = "0 0 17 ? * MON-FRI")
     public void executeJob() {
         if (canProcess()) {
             try {
-                log.info("Execute Job execution started for to load 1year data for markete.");
-                int synchronizedRows = marketsService.syncOneYearHistoricalData();
+                log.info("Execute Job execution started for to load 2year data for market.");
+                int synchronizedRows = marketsService.syncTwoYearHistoricalData();
                 log.info("Synchronized {} rows into market history", synchronizedRows);
             } catch (Exception exception) {
                 log.error("Could not synchronize historical data into market history.", exception);

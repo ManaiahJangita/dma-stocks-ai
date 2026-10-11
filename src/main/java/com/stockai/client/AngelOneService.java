@@ -67,6 +67,7 @@ public class AngelOneService implements AngelOneRestService {
     public void login() {
         log.info("Generate new session through login AngelOne.");
         generateSession();
+        logout();
     }
 
     public void logout() {
@@ -155,7 +156,7 @@ public class AngelOneService implements AngelOneRestService {
                         saveInstrument(instrumentsEntityList);
                     }
                     this.instrumentMap.putAll(newInstrumentMap);
-                   // getAllInstrumentsAndSaveHistoricalData(instrumentsRepository,historicalDataService, this);
+                    //getAllInstrumentsAndSaveHistoricalData(instrumentsRepository,historicalDataService, this);
                     updateDailyStockData(instrumentsRepository, dailyStockService, this);
                 }
             } catch (Exception e) {

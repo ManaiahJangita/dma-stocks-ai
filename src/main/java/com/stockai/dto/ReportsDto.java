@@ -17,6 +17,14 @@ public class ReportsDto {
 	private String description;
 	private String status;
 	private LocalDateTime createdDate;
+	private String filterValue;
+	private String symbol;
+	private Double metricValue;
+	private Double changePercent;
+	private Double closePrice;
+	private Long volume;
+	private Integer rankNo;
+	private LocalDate dataDate;
     private LocalDate fromDate;
     private LocalDate toDate;
 }

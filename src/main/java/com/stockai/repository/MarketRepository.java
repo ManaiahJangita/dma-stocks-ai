@@ -1,16 +1,26 @@
 package com.stockai.repository;
 
+import com.stockai.dto.MarketFiltersDto;
+import com.stockai.entity.HistoricalMarketEntity;
 import com.stockai.entity.MarketEntity;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDate;
 import java.util.List;
 
 @Repository
 public interface MarketRepository {
-	List<MarketEntity> findAllMarketData(MarketEntity filters);
+    List<MarketEntity> findAllMarketData(int offset, int limit);
 
-	void upsertHistoricalMarkets(List<MarketEntity> rows);
+    List<MarketEntity> findAllMarketData();
 
-	int deleteSyncedMarketHistoryBefore(LocalDate cutoffDate);
+    void upsertHistoricalMarkets(List<MarketEntity> rows);
+
+    void deleteHistoricalMarkets();
+
+    void upsertHistoricalMarketsEveryday(List<HistoricalMarketEntity> rows);
+
+    int getCount();
+
+    List<MarketEntity> findMarketsByFilters(MarketFiltersDto filters);
+
 }

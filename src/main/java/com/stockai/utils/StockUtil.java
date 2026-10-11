@@ -196,7 +196,6 @@ public class StockUtil {
                 stockDto.setOpen(model.getCandleOpen());
                 stockDto.setSymbol(model.getSymbol());
                 stockDto.setVolume(MathUtil.parseLong(model.getTrdVol()));
-                stockDto.setDvolume(MathUtil.parseLong(model.getDeliveryQuntity()));
                 dtos.add(stockDto);
             }
         }

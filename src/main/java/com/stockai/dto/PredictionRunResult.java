@@ -10,7 +10,6 @@ import java.util.UUID;
 
 @Data
 @NoArgsConstructor
-@AllArgsConstructor
 public class PredictionRunResult {
         private UUID runId;
         private LocalDate startDate;
@@ -22,4 +21,41 @@ public class PredictionRunResult {
         private int correctValidationPredictions;
         private double validationAccuracyPercent;
         private String accuracyMetric;
+
+        public PredictionRunResult(UUID runId,
+                                  LocalDate startDate,
+                                  LocalDate endDate,
+                                  LocalDateTime createdAt,
+                                  int predictionsSaved,
+                                  int skippedSymbols,
+                                  int validationSamples,
+                                  int correctValidationPredictions,
+                                  double validationAccuracyPercent,
+                                  String accuracyMetric) {
+                this.runId = runId;
+                this.startDate = startDate;
+                this.endDate = endDate;
+                this.createdAt = createdAt;
+                this.predictionsSaved = predictionsSaved;
+                this.skippedSymbols = skippedSymbols;
+                this.validationSamples = validationSamples;
+                this.correctValidationPredictions = correctValidationPredictions;
+                this.validationAccuracyPercent = validationAccuracyPercent;
+                this.accuracyMetric = accuracyMetric;
+        }
+
+        public PredictionRunResult(UUID runId,
+                                  LocalDate startDate,
+                                  LocalDate endDate,
+                                  LocalDateTime createdAt,
+                                  int predictionsSaved,
+                                  int skippedSymbols,
+                                  int validationSamples,
+                                  int correctValidationPredictions,
+                                  double validationAccuracyPercent,
+                                  String accuracyMetric,
+                                  String status) {
+                this(runId, startDate, endDate, createdAt, predictionsSaved, skippedSymbols,
+                        validationSamples, correctValidationPredictions, validationAccuracyPercent, accuracyMetric);
+        }
 }
