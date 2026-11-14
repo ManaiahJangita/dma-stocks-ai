@@ -8,7 +8,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, RandomForestRegressor, GradientBoostingRegressor
-from sklearn.metrics import accuracy_score, classification_report, precision_score, recall_score, f1_score, mean_squared_error, mean_absolute_error
+from sklearn.metrics import accuracy_score, classification_report, precision_score, recall_score, f1_score, mean_squared_error, mean_absolute_error, r2_score
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 
@@ -109,6 +109,8 @@ class StockPredictionModel:
 
         x_train = X.iloc[:-min(10, len(X) // 5)]
         y_train = y.iloc[:-min(10, len(X) // 5)]
+        x_val = X.iloc[len(x_train):]
+        y_val = y.iloc[len(y_train):]
 
         if len(x_train) < 5:
             raise ValueError("Not enough training rows")
@@ -149,7 +151,76 @@ class StockPredictionModel:
             self.model = GradientBoostingRegressor(random_state=42)
 
         self.model.fit(X_scaled, y_train)
+
+        # Store validation data for evaluation
+        self.val_predictions = self.model.predict(self.scaler.transform(x_val))
+        self.val_actuals = y_val.values
+
         return self
+
+    def get_validation_metrics(self) -> Dict[str, float]:
+        """Calculate validation metrics comparing predictions vs actuals"""
+        if not hasattr(self, 'val_predictions') or not hasattr(self, 'val_actuals'):
+            return {}
+
+        mae = mean_absolute_error(self.val_actuals, self.val_predictions)
+        rmse = np.sqrt(mean_squared_error(self.val_actuals, self.val_predictions))
+        r2 = r2_score(self.val_actuals, self.val_predictions)
+        mape = np.mean(np.abs((self.val_actuals - self.val_predictions) / self.val_actuals)) * 100
+
+        return {
+            "mae": float(mae),
+            "rmse": float(rmse),
+            "r2_score": float(r2),
+            "mape_percent": float(mape),
+            "validation_samples": len(self.val_actuals),
+        }
+
+    def evaluate_predictions(self, actual_df: pd.DataFrame) -> Dict[str, Any]:
+        """Compare predictions vs actual HIGH values from a test dataset"""
+        if self.model is None:
+            raise ValueError("Model is not trained")
+
+        features_df = self.build_features(actual_df)
+        if features_df.empty:
+            return {"error": "No valid rows in test data"}
+
+        X = features_df[self.feature_columns]
+        X_scaled = self.scaler.transform(X)
+        predictions = self.model.predict(X_scaled)
+        actuals = features_df["target_high"].values
+
+        mae = mean_absolute_error(actuals, predictions)
+        rmse = np.sqrt(mean_squared_error(actuals, predictions))
+        r2 = r2_score(actuals, predictions)
+        mape = np.mean(np.abs((actuals - predictions) / np.where(actuals != 0, actuals, 1))) * 100
+
+        # Calculate directional accuracy
+        prediction_direction = predictions > (actuals * 1.01)
+        actual_direction = actuals > (actuals * 1.01)
+        directional_accuracy = np.mean(prediction_direction == actual_direction) * 100
+
+        # Prediction error analysis
+        errors = np.abs(actuals - predictions)
+        error_within_1pct = np.mean(errors <= actuals * 0.01) * 100
+        error_within_2pct = np.mean(errors <= actuals * 0.02) * 100
+        error_within_5pct = np.mean(errors <= actuals * 0.05) * 100
+
+        return {
+            "evaluation_summary": {
+                "mae": round(float(mae), 4),
+                "rmse": round(float(rmse), 4),
+                "r2_score": round(float(r2), 4),
+                "mape_percent": round(float(mape), 2),
+                "directional_accuracy_percent": round(float(directional_accuracy), 2),
+            },
+            "error_distribution": {
+                "within_1_percent": round(float(error_within_1pct), 2),
+                "within_2_percent": round(float(error_within_2pct), 2),
+                "within_5_percent": round(float(error_within_5pct), 2),
+            },
+            "total_test_samples": len(actuals),
+        }
 
     def predict(self, df: pd.DataFrame) -> Dict[str, Any]:
         if self.model is None:
@@ -172,12 +243,65 @@ class StockPredictionModel:
         else:
             high_change_pct = 0.0
 
-        return {
+        result = {
             "symbol": latest.get("symbol"),
             "predicted_high": round(float(predicted_high), 4),
             "predicted_high_change_pct": round(high_change_pct, 2),
             "current_close": round(current_close, 4),
             "current_high": round(current_high, 4),
+        }
+
+        # Add validation metrics if available
+        metrics = self.get_validation_metrics()
+        if metrics:
+            result["validation_metrics"] = metrics
+
+        return result
+
+    def evaluate_predictions(self, actual_df: pd.DataFrame) -> Dict[str, Any]:
+        """Compare predictions vs actual HIGH values from a test dataset"""
+        if self.model is None:
+            raise ValueError("Model is not trained")
+
+        features_df = self.build_features(actual_df)
+        if features_df.empty:
+            return {"error": "No valid rows in test data"}
+
+        X = features_df[self.feature_columns]
+        X_scaled = self.scaler.transform(X)
+        predictions = self.model.predict(X_scaled)
+        actuals = features_df["target_high"].values
+
+        mae = mean_absolute_error(actuals, predictions)
+        rmse = np.sqrt(mean_squared_error(actuals, predictions))
+        r2 = r2_score(actuals, predictions)
+        mape = np.mean(np.abs((actuals - predictions) / np.where(actuals != 0, actuals, 1))) * 100
+
+        # Calculate directional accuracy
+        prediction_direction = predictions > (actuals * 1.01)
+        actual_direction = actuals > (actuals * 1.01)
+        directional_accuracy = np.mean(prediction_direction == actual_direction) * 100
+
+        # Prediction error analysis
+        errors = np.abs(actuals - predictions)
+        error_within_1pct = np.mean(errors <= actuals * 0.01) * 100
+        error_within_2pct = np.mean(errors <= actuals * 0.02) * 100
+        error_within_5pct = np.mean(errors <= actuals * 0.05) * 100
+
+        return {
+            "evaluation_summary": {
+                "mae": round(float(mae), 4),
+                "rmse": round(float(rmse), 4),
+                "r2_score": round(float(r2), 4),
+                "mape_percent": round(float(mape), 2),
+                "directional_accuracy_percent": round(float(directional_accuracy), 2),
+            },
+            "error_distribution": {
+                "within_1_percent": round(float(error_within_1pct), 2),
+                "within_2_percent": round(float(error_within_2pct), 2),
+                "within_5_percent": round(float(error_within_5pct), 2),
+            },
+            "total_test_samples": len(actuals),
         }
 
     def save_model(self, model_path: Optional[str] = None):

@@ -12,15 +12,19 @@ import java.util.function.Predicate;
  */
 final class MarketAnalytics {
 
-    /** Same sector names for every screen; membership is configured with dashboard.sector.* properties. */
+    /**
+     * Same sector names for every screen; membership is configured with dashboard.sector.* properties.
+     */
     static final List<String> SECTOR_OPTIONS = List.of("Banking", "Information Technology", "Financial Services",
-            "Automobile", "Pharmaceuticals", "Healthcare", "Energy", "Metals", "FMCG", "Realty", "Telecom","Gold");
+            "Automobile", "Pharmaceuticals", "Healthcare", "Energy", "Metals", "FMCG", "Realty", "Telecom", "Gold");
 
     record Snapshot(String symbol, MarketEntity latest, double close, Double changePercent, double volume,
                     Double rsi, Double sma20, Double sma50, double high52, double low52, boolean breakout) {
     }
 
-    /** One generated result row; each screen maps it onto its own table. */
+    /**
+     * One generated result row; each screen maps it onto its own table.
+     */
     record AnalysisRow(String filterType, String filterValue, String symbol, String title, String status,
                        String description, Double metric, Double changePercent, Double close, Long volume,
                        int rank) {
@@ -45,7 +49,9 @@ final class MarketAnalytics {
         return m.getLow() == null ? m.getClose() : m.getLow();
     }
 
-    /** Series per symbol sorted by date, keeping only symbols that traded on the latest date. */
+    /**
+     * Series per symbol sorted by date, keeping only symbols that traded on the latest date.
+     */
     static Map<String, List<MarketEntity>> seriesBySymbol(List<MarketEntity> markets) {
         Map<String, List<MarketEntity>> bySymbol = new HashMap<>();
         LocalDate latestDate = null;
@@ -132,7 +138,9 @@ final class MarketAnalytics {
         return round(100 - 100 / (1 + averageGain / averageLoss));
     }
 
-    /** Highest high of the {@code lookback} candles before the latest one. */
+    /**
+     * Highest high of the {@code lookback} candles before the latest one.
+     */
     static Double priorHigh(List<MarketEntity> series, int lookback) {
         int n = series.size();
         if (lookback < 1 || n <= lookback) {
@@ -159,7 +167,9 @@ final class MarketAnalytics {
         return priorLow != null && series.get(series.size() - 1).getClose() < priorLow;
     }
 
-    /** True when the latest close moved from at/below to above its simple moving average. */
+    /**
+     * True when the latest close moved from at/below to above its simple moving average.
+     */
     static boolean crossedAboveAverage(List<MarketEntity> series, int period) {
         int n = series.size();
         Double previous = smaAt(series, n - 1, period);
@@ -168,7 +178,9 @@ final class MarketAnalytics {
                 && series.get(n - 2).getClose() <= previous && series.get(n - 1).getClose() > current;
     }
 
-    /** 1 for a bullish MACD (12, 26, 9) crossover on the latest candle, -1 for bearish, 0 otherwise. */
+    /**
+     * 1 for a bullish MACD (12, 26, 9) crossover on the latest candle, -1 for bearish, 0 otherwise.
+     */
     static int macdCrossover(List<MarketEntity> series) {
         int n = series.size();
         if (n < 35) {
@@ -194,7 +206,9 @@ final class MarketAnalytics {
         return previousDiff >= 0 && currentDiff < 0 ? -1 : 0;
     }
 
-    /** Percentage change of the latest close against the last close on or before the given number of days ago. */
+    /**
+     * Percentage change of the latest close against the last close on or before the given number of days ago.
+     */
     static Double changeOver(List<MarketEntity> series, int calendarDays) {
         int n = series.size();
         if (n < 2) {
@@ -218,7 +232,9 @@ final class MarketAnalytics {
         return round((last.getClose() - base.getClose()) / base.getClose() * 100);
     }
 
-    /** Standard deviation of daily percentage returns over the last {@code period} candles. */
+    /**
+     * Standard deviation of daily percentage returns over the last {@code period} candles.
+     */
     static Double volatility(List<MarketEntity> series, int period) {
         int n = series.size();
         if (n <= period) {
@@ -235,7 +251,9 @@ final class MarketAnalytics {
         return round(Math.sqrt(variance));
     }
 
-    /** Average volume of the {@code period} candles before the latest one. */
+    /**
+     * Average volume of the {@code period} candles before the latest one.
+     */
     static double averageVolume(List<MarketEntity> series, int period) {
         int n = series.size();
         int from = Math.max(0, n - 1 - period);

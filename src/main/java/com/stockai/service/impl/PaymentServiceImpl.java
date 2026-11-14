@@ -29,55 +29,79 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Override
     public List<PaymentsDto> fetchPaymentsBasedOnFilters(PaymentsFilterDto filters) {
-        List<PaymentEntity> response = paymentRepository.findPaymentPlans(filters);
-        return response.stream().map(entity -> {;
-            PaymentsDto dto = new PaymentsDto();
-            BeanUtils.copyProperties(entity, dto);
-            return dto;
-        }).toList();
+        log.info("Fetching payment records with filters: {}", filters);
+        try {
+            List<PaymentEntity> response = paymentRepository.findPaymentPlans(filters);
+            List<PaymentsDto> result = response.stream().map(entity -> {
+                PaymentsDto dto = new PaymentsDto();
+                BeanUtils.copyProperties(entity, dto);
+                return dto;
+            }).toList();
+            log.info("Payment filter request completed with {} records", result.size());
+            return result;
+        } catch (Exception e) {
+            log.error("Failed to fetch payment records with filters: {}", filters, e);
+            throw e;
+        }
     }
 
     public List<PaymentsDto> fetchAllPayments() {
-        List<PaymentsDto> paymentDtos = new ArrayList<>();
-        List<PaymentEntity> entities = paymentRepository.fetchAllPayments();
-        for (PaymentEntity entity : entities) {
-            PaymentsDto dto = new PaymentsDto();
-            BeanUtils.copyProperties(entity, dto);
-            paymentDtos.add(dto);
+        log.info("Fetching all payment plans");
+        try {
+            List<PaymentsDto> paymentDtos = new ArrayList<>();
+            List<PaymentEntity> entities = paymentRepository.fetchAllPayments();
+            for (PaymentEntity entity : entities) {
+                PaymentsDto dto = new PaymentsDto();
+                BeanUtils.copyProperties(entity, dto);
+                paymentDtos.add(dto);
+            }
+            log.info("Fetched {} payment plans", paymentDtos.size());
+            return paymentDtos;
+        } catch (Exception e) {
+            log.error("Failed to fetch all payment plans", e);
+            throw e;
         }
-        return paymentDtos;
     }
 
     @Override
     @Transactional
     public synchronized int syncPaymentPlanCatalog() {
-        List<PlanEntity> sourcePlans = plansRepository.findAllPlans();
-        List<PaymentEntity> paymentPlans = new ArrayList<>(sourcePlans.size());
-        for (PlanEntity source : sourcePlans) {
-            PaymentEntity target = new PaymentEntity();
-            target.setPlanId(source.getId());
-            target.setUserName(source.getUserName());
-            target.setRecordType("SUBSCRIPTION");
-            target.setPlanName(source.getName());
-            target.setPlanDescription(source.getDescription());
-            target.setPaymentType("Online");
-            target.setAmount(BigDecimal.valueOf(source.getPrice()));
-            target.setCurrency("INR");
-            target.setStatus(source.getFromDate() != null && source.getFromDate().isAfter(LocalDate.now()) ? "DeActivated" : source.getStatus());
-            target.setTransactionReference(source.getTransactionReference());
-            target.setCreatedDate(source.getCreatedDate());
-            target.setPlanUpdatedDate(source.getUpdatedDate());
-            target.setFromDate(source.getFromDate());
-            target.setToDate(source.getToDate());
-            target.setMaximumPrice(source.getMaximumPrice());
-            target.setMinimumPrice(source.getMinimumPrice());
-            paymentPlans.add(target);
+        log.info("Starting payment plan catalog sync");
+        try {
+            List<PlanEntity> sourcePlans = plansRepository.findAllPlans();
+            log.info("Retrieved {} plans from source catalog", sourcePlans == null ? 0 : sourcePlans.size());
+            List<PaymentEntity> paymentPlans = new ArrayList<>(sourcePlans.size());
+            for (PlanEntity source : sourcePlans) {
+                PaymentEntity target = new PaymentEntity();
+                target.setPlanId(source.getId());
+                target.setUserName(source.getUserName());
+                target.setRecordType("SUBSCRIPTION");
+                target.setPlanName(source.getName());
+                target.setPlanDescription(source.getDescription());
+                target.setPaymentType("Online");
+                target.setAmount(BigDecimal.valueOf(source.getPrice()));
+                target.setCurrency("INR");
+                target.setStatus(source.getFromDate() != null && source.getFromDate().isAfter(LocalDate.now()) ? "DeActivated" : source.getStatus());
+                target.setTransactionReference(source.getTransactionReference());
+                target.setCreatedDate(source.getCreatedDate());
+                target.setPlanUpdatedDate(source.getUpdatedDate());
+                target.setFromDate(source.getFromDate());
+                target.setToDate(source.getToDate());
+                target.setMaximumPrice(source.getMaximumPrice());
+                target.setMinimumPrice(source.getMinimumPrice());
+                paymentPlans.add(target);
+            }
+            if (!paymentPlans.isEmpty()) {
+                log.info("Syncing {} payment plans from source to target", paymentPlans.size());
+                paymentRepository.upsertPaymentPlans(paymentPlans);
+                log.info("Successfully synced {} payment plans from source to target", paymentPlans.size());
+            } else {
+                log.warn("No payment plans were available to sync");
+            }
+            return paymentPlans.size();
+        } catch (Exception e) {
+            log.error("Failed to sync payment plan catalog", e);
+            throw e;
         }
-        if (!paymentPlans.isEmpty()) {
-            log.info("Syncing {} payment plans from source to target", paymentPlans.size());
-            paymentRepository.upsertPaymentPlans(paymentPlans);
-            log.info("Successfully synced {} payment plans from source to target", paymentPlans.size());
-        }
-        return paymentPlans.size();
     }
 }

@@ -12,12 +12,10 @@ public interface InstrumentsRepository {
     void saveAllInstrumetns(List<InstrumentsEntity> instrumentsEntities);
 
     @Query(value = "SELECT name FROM dmastock.instruments", nativeQuery = true)
-    public List<String> findAllInstruments();
+    List<String> findAllInstruments();
 
-    public List<String> findInstrumentsSymbols();
-
-    List<InstrumentsEntity> findInstrumentsByExchange(String exchange);
+    List<String> findInstrumentsSymbols();
 
     @Query(value = "TRUNCATE TABLE dmastock.instruments", nativeQuery = true)
-    public void truncateInstrumentsTable();
+    void truncateInstrumentsTable();
 }

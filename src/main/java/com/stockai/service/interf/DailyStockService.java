@@ -13,6 +13,4 @@ public interface DailyStockService {
     void truncateDailyStockData();
 
     void insertHistoryTable();
-
-    void fullData();
 }

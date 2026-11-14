@@ -15,16 +15,15 @@ public class PaymentPlanSyncScheduler extends BasicJob {
         this.paymentService = paymentService;
     }
 
-
     @Override
     @Scheduled(cron = "0 30 16 ? * MON-SUN")
     public void executeJob() {
         log.info("Execute Job Method Execution started to load all payment details.");
-            try {
-                int synced = paymentService.syncPaymentPlanCatalog();
-                log.info("Synchronized {} plans into the payment plan catalog", synced);
-            } catch (Exception exception) {
-                log.error("Could not synchronize plans into the payment plan catalog", exception);
-            }
+        try {
+            int synced = paymentService.syncPaymentPlanCatalog();
+            log.info("Synchronized {} plans into the payment plan catalog", synced);
+        } catch (Exception exception) {
+            log.error("Could not synchronize plans into the payment plan catalog", exception);
+        }
     }
 }

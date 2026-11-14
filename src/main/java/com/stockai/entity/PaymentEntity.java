@@ -54,16 +54,16 @@ public class PaymentEntity {
 
     @Column(name = "created_date", nullable = false)
     private LocalDateTime createdDate;
-    
+
     @Transient
     private LocalDate fromDate;
-    
+
     @Transient
     private LocalDate toDate;
-    
+
     @Transient
     private BigDecimal minimumAmount;
-    
+
     @Transient
     private BigDecimal maximumAmount;
 

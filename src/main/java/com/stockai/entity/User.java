@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "users" , schema = "dmastock")
+@Table(name = "users", schema = "dmastock")
 @Data
 public class User {
     @Id
@@ -47,9 +47,9 @@ public class User {
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<UserRoles> roles;
 
-    @Column(name = "created_date",nullable = false)
+    @Column(name = "created_date", nullable = false)
     private LocalDateTime createdDate;
 
-    @Column(name = "updated_date",nullable = false)
+    @Column(name = "updated_date", nullable = false)
     private LocalDate updatedDate;
 }

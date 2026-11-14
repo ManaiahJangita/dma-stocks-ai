@@ -10,5 +10,6 @@ public interface HistoricalDataRepository {
 
     List<HistoricalDataEntity> findAll(LocalDate startDate, LocalDate endDate);
 
-    List<HistoricalDataEntity> findAll(LocalDate startDate, LocalDate endDate, int offset, int limit);
+    LocalDate findLatestCreatedDate();
+
 }

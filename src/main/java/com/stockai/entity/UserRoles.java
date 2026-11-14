@@ -1,8 +1,8 @@
 package com.stockai.entity;
 
-import com.stockai.entity.User;
 import jakarta.persistence.*;
 import lombok.Data;
+
 import java.util.UUID;
 
 @Entity

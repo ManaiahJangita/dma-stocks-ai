@@ -33,13 +33,33 @@ public class SmtpEmailDeliveryService implements EmailDeliveryService {
         message.setSubject("Stock AI password reset code");
         message.setText("Your password reset code is " + otp
                 + ". It expires in 5 minutes. If you did not request this, ignore this email.");
-        try{
+        try {
             mailSender.send(message);
         } catch (Exception e) {
             log.error("Failed to send password reset OTP email to {}: {}", email, e.getMessage());
             throw new RuntimeException("Failed to send password reset OTP email", e);
         }
-        mailSender.send(message);
         log.info("Password reset OTP sent to email: {}", email);
+    }
+
+    @Override
+    public void sendPredictionAccuracyAlert(String toEmail, String subject, String body) {
+        if (!StringUtils.hasText(fromAddress)) {
+            throw new IllegalStateException("SPRING_MAIL_FROM must be configured");
+        }
+
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom(fromAddress);
+        message.setTo(toEmail);
+        message.setSubject(subject);
+        message.setText(body);
+
+        try {
+            mailSender.send(message);
+            log.info("Prediction accuracy alert sent to {} with subject {}", toEmail, subject);
+        } catch (Exception e) {
+            log.error("Failed to send prediction accuracy alert to {}: {}", toEmail, e.getMessage(), e);
+            throw new RuntimeException("Failed to send prediction accuracy alert", e);
+        }
     }
 }

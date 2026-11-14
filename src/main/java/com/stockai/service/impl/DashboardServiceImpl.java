@@ -2,21 +2,24 @@ package com.stockai.service.impl;
 
 import com.stockai.dto.DashboardDto;
 import com.stockai.dto.DashboardFilterDto;
-import com.stockai.entity.*;
-import com.stockai.repository.*;
+import com.stockai.dto.HistoricalDashboardFiltersDto;
+import com.stockai.entity.DashboardEntity;
+import com.stockai.entity.HistoricalDashboardEntity;
+import com.stockai.entity.MarketEntity;
+import com.stockai.entity.PredictionEntity;
+import com.stockai.repository.DashboardRepository;
+import com.stockai.repository.HistoricalDashboardRepository;
+import com.stockai.repository.MarketRepository;
+import com.stockai.repository.PredictionRepository;
 import com.stockai.service.interf.DashboardService;
-import com.stockai.utils.StockUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.env.Environment;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,7 +36,7 @@ public class DashboardServiceImpl implements DashboardService {
     private PredictionRepository predictionRepository;
 
     @Autowired
-    private HistoricalDashboardRepository  historicalDashboardRepository;
+    private HistoricalDashboardRepository historicalDashboardRepository;
 
 
     @Override
@@ -236,7 +239,7 @@ public class DashboardServiceImpl implements DashboardService {
             dashboard.setConfidenceScoreDiff(confidenceDiff);
 
             log.debug("Confidence Diff - Market: {}%, Prediction: {}%, Diff: {}%",
-                marketConfidence, predictionConfidence, confidenceDiff);
+                    marketConfidence, predictionConfidence, confidenceDiff);
         }
     }
 
@@ -248,4 +251,18 @@ public class DashboardServiceImpl implements DashboardService {
         BeanUtils.copyProperties(entity, dto);
         return dto;
     }
+
+    @Override
+    public List<HistoricalDashboardEntity> fetchHistoricalDashboardData(HistoricalDashboardFiltersDto filters) {
+        try {
+            if (filters == null) {
+                return List.of();
+            }
+            return historicalDashboardRepository.findHistoricalDashboardDataByFilters(filters);
+        } catch (Exception e) {
+            log.error("Failed to fetch historical dashboard data for filters {}", filters, e);
+            return List.of();
+        }
+    }
+
 }

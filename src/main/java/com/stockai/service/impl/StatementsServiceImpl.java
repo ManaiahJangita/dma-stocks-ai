@@ -1,12 +1,13 @@
 package com.stockai.service.impl;
 
+import com.stockai.dto.MonthlyStatementSummaryDto;
 import com.stockai.dto.StatementDto;
 import com.stockai.dto.StatementFiltersDto;
 import com.stockai.entity.StatementEntity;
 import com.stockai.repository.StatementRepository;
 import com.stockai.service.interf.StatementsService;
-import org.springframework.beans.BeanUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +16,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @Slf4j
@@ -36,6 +38,7 @@ public class StatementsServiceImpl implements StatementsService {
         if (!tradeType.equals("BUY") && !tradeType.equals("SELL")) {
             throw new IllegalArgumentException("tradeType must be BUY or SELL");
         }
+
         StatementEntity entity = new StatementEntity();
         entity.setUserId(request.getUserId());
         entity.setSymbol(request.getSymbol().trim().toUpperCase());
@@ -53,13 +56,44 @@ public class StatementsServiceImpl implements StatementsService {
     }
 
     @Override
+    @Transactional
+    public StatementDto createSaleReferenceStatement(StatementDto request) {
+        if (request == null || request.getSymbol() == null || request.getSymbol().isBlank()
+                || request.getStockType() == null || request.getStockType().isBlank()
+                || request.getTradeType() == null || request.getQuantity() == null || request.getUnitPrice() == null
+                || request.getQuantity().signum() <= 0 || request.getUnitPrice().signum() <= 0) {
+            throw new IllegalArgumentException("Symbol, stockType, BUY/SELL tradeType, positive quantity, and positive unitPrice are required");
+        }
+
+        String tradeType = request.getTradeType().trim().toUpperCase();
+        if (!tradeType.equals("BUY") && !tradeType.equals("SELL")) {
+            throw new IllegalArgumentException("tradeType must be BUY or SELL");
+        }
+
+        StatementEntity entity = new StatementEntity();
+        entity.setUserId(request.getUserId());
+        entity.setSymbol(request.getSymbol().trim().toUpperCase());
+        entity.setStockType(request.getStockType().trim().toUpperCase());
+        entity.setTradeType(tradeType);
+        entity.setQuantity(request.getQuantity());
+        entity.setUnitPrice(request.getUnitPrice());
+        entity.setTotalAmount(request.getTotalAmount());
+        entity.setTradeDate(request.getTradeDate() == null ? LocalDate.now() : request.getTradeDate());
+        entity.setCreatedDate(LocalDateTime.now());
+        entity.setStatus(request.getStatus() == null ? "SOLD" : request.getStatus());
+        entity.setTitle("SALE " + entity.getSymbol());
+        entity.setDescription(request.getDescription() == null ? "Post-sale reference record" : request.getDescription());
+        return toDto(statementRepository.saveStatement(entity));
+    }
+
+    @Override
     public List<StatementDto> fetchStatements(StatementFiltersDto filters) {
         log.info("Fetching statements with filters: {}", filters);
         List<StatementEntity> entities = statementRepository.findStatements(filters);
         List<StatementDto> response = new ArrayList<>();
-        for(StatementEntity model: entities){
+        for (StatementEntity model : entities) {
             StatementDto dto = new StatementDto();
-            BeanUtils.copyProperties(model,dto);
+            BeanUtils.copyProperties(model, dto);
             response.add(dto);
         }
         log.info("Fetched {} statements based on filters", response.size());
@@ -69,15 +103,29 @@ public class StatementsServiceImpl implements StatementsService {
     @Override
     public List<StatementDto> fetchAllStatements() {
         log.info("Fetching all statements");
-       List<StatementEntity> allStatements = statementRepository.findAllStatements();
-       List<StatementDto> response = new ArrayList<>();
-       for(StatementEntity entity: allStatements){
-           StatementDto dto = new StatementDto();
-           BeanUtils.copyProperties(entity,dto);
-           response.add(dto);
-       }
-       log.info("Fetched {} statements in total", response.size());
-       return response;
+        List<StatementEntity> allStatements = statementRepository.findAllStatements();
+        List<StatementDto> response = new ArrayList<>();
+        for (StatementEntity entity : allStatements) {
+            StatementDto dto = new StatementDto();
+            BeanUtils.copyProperties(entity, dto);
+            response.add(dto);
+        }
+        log.info("Fetched {} statements in total", response.size());
+        return response;
+    }
+
+    @Override
+    public MonthlyStatementSummaryDto fetchMonthlySummary(UUID userId, LocalDate fromDate, LocalDate toDate) {
+        if (userId == null) {
+            throw new IllegalArgumentException("userId is required");
+        }
+        if (fromDate == null || toDate == null) {
+            throw new IllegalArgumentException("fromDate and toDate are required");
+        }
+        if (fromDate.isAfter(toDate)) {
+            throw new IllegalArgumentException("fromDate must be before or equal to toDate");
+        }
+        return statementRepository.getMonthlyStatementSummary(userId, fromDate, toDate);
     }
 
     private StatementDto toDto(StatementEntity entity) {

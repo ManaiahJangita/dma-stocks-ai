@@ -1,9 +1,11 @@
 package com.stockai.apipridection.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.stockai.entity.HistoricalDataEntity;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
@@ -18,8 +20,10 @@ import java.util.List;
 import java.util.Locale;
 
 @Service
+@Slf4j
 public class StockAIService {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+            .registerModule(new JavaTimeModule());
     private static final String PYTHON_MODEL_SCRIPT = "python/stock_prediction_model_v2.py";
     private static final String PYTHON_MODEL_FILE = "python/models/stock_prediction_model.joblib";
 
@@ -35,6 +39,7 @@ public class StockAIService {
     private static final int MIN_TRAINING_SAMPLES = 40;
     private static final int MIN_VALIDATION_SAMPLES = 10;
     private static final double TRAINING_FRACTION = 0.8;
+    private static final int PYTHON_TIMEOUT_SECONDS = 60;
 
     public AnalysisResult analyze(List<HistoricalDataEntity> history) {
         return analyze(history, DEFAULT_MODEL_TYPE);
@@ -44,13 +49,28 @@ public class StockAIService {
         if (modelType == null) {
             modelType = DEFAULT_MODEL_TYPE;
         }
+        if (history == null || history.isEmpty()) {
+            return null;
+        }
+        List<HistoricalDataEntity> validHistory = sanitizeHistory(history);
+        if (validHistory.size() < 10) {
+            return buildFallbackAnalysis(validHistory.isEmpty() ? history : validHistory);
+        }
         try {
+            AnalysisResult result;
             if (modelType == ModelType.XGBOOST || modelType == ModelType.LIGHTGBM) {
-                return analyzeViaPython(history, modelType);
+                result = analyzeViaPython(validHistory, modelType);
+            } else {
+                result = analyzeWithLogistic(validHistory);
             }
-            return analyzeWithLogistic(history);
+            if (result != null) {
+                return result;
+            }
+            return buildFallbackAnalysis(validHistory);
         } catch (Exception ex) {
-            return analyzeWithLogistic(history);
+            log.warn("Python/model analysis failed, using fallback analysis", ex);
+            AnalysisResult fallback = analyzeWithLogistic(validHistory);
+            return fallback != null ? fallback : buildFallbackAnalysis(validHistory);
         }
     }
 
@@ -85,31 +105,53 @@ public class StockAIService {
             throw new IOException("Python model returned empty output");
         }
 
-        var prediction = OBJECT_MAPPER.readTree(jsonOutput);
-        double predictedHigh = prediction.has("predicted_high") && !prediction.get("predicted_high").isNull()
-                ? prediction.get("predicted_high").asDouble() : history.get(history.size() - 1).getHigh();
-        double predictedHighChangePct = prediction.has("predicted_high_change_pct")
-                ? prediction.get("predicted_high_change_pct").asDouble() : 0.0;
-        double currentClose = prediction.has("current_close")
-                ? prediction.get("current_close").asDouble() : history.get(history.size() - 1).getClose();
-        
-        String direction = predictedHighChangePct > 0.5 ? "Up" : "Down";
-        double confidence = Math.min(100.0, Math.abs(predictedHighChangePct) + 50.0);
+        String sanitizedJsonOutput = extractJsonPayload(jsonOutput);
 
-        return new AnalysisResult(
-                predictedHigh,
-                Math.max(0.01, currentClose * 0.98),
-                currentClose,
-                predictedHighChangePct,
-                -0.5,
-                0.0,
-                direction,
-                confidence,
-                predictedHighChangePct > 0.5 ? confidence : (100.0 - confidence),
-                predictedHighChangePct > 0.5 ? (100.0 - confidence) : confidence,
-                0,
-                0
-        );
+        try {
+            var prediction = OBJECT_MAPPER.readTree(sanitizedJsonOutput);
+            double predictedHigh = prediction.has("predicted_high") && !prediction.get("predicted_high").isNull()
+                    ? prediction.get("predicted_high").asDouble() : history.get(history.size() - 1).getHigh();
+            double predictedHighChangePct = prediction.has("predicted_high_change_pct")
+                    ? prediction.get("predicted_high_change_pct").asDouble() : 0.0;
+            double currentClose = prediction.has("current_close")
+                    ? prediction.get("current_close").asDouble() : history.get(history.size() - 1).getClose();
+
+            String direction = predictedHighChangePct > 0.5 ? "Up" : "Down";
+            double confidence = Math.min(100.0, Math.abs(predictedHighChangePct) + 50.0);
+            double predictedClose = currentClose * (1.0 + (predictedHighChangePct / 100.0));
+            double predictedLow = Math.max(0.01, currentClose * (1.0 + ((predictedHighChangePct - 1.0) / 100.0)));
+
+            return new AnalysisResult(
+                    predictedHigh,
+                    predictedLow,
+                    predictedClose,
+                    predictedHighChangePct,
+                    percentage(predictedLow, currentClose),
+                    percentage(predictedClose, currentClose),
+                    direction,
+                    confidence,
+                    predictedHighChangePct > 0.5 ? confidence : (100.0 - confidence),
+                    predictedHighChangePct > 0.5 ? (100.0 - confidence) : confidence,
+                    0,
+                    0
+            );
+        } catch (Exception parseEx) {
+            log.warn("Failed to parse Python prediction JSON: {}", sanitizedJsonOutput, parseEx);
+            throw parseEx;
+        }
+    }
+
+    private String extractJsonPayload(String rawOutput) {
+        if (rawOutput == null || rawOutput.isBlank()) {
+            return rawOutput;
+        }
+        String output = rawOutput.trim();
+        int start = output.lastIndexOf('{');
+        int end = output.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            return output.substring(start, end + 1);
+        }
+        return output;
     }
 
     private String runPython(Path script, List<String> args) throws IOException, InterruptedException {
@@ -119,7 +161,11 @@ public class StockAIService {
         command.add(script.toString());
         command.addAll(args);
 
-        Process process = new ProcessBuilder(command)
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        processBuilder.environment().put("LOKY_MAX_CPU_COUNT", "1");
+        processBuilder.environment().put("PYTHONWARNINGS", "ignore");
+
+        Process process = processBuilder
                 .redirectErrorStream(true)
                 .start();
 
@@ -131,7 +177,13 @@ public class StockAIService {
             }
         }
 
-        int exitCode = process.waitFor();
+        boolean finished = process.waitFor(PYTHON_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            throw new IOException("Python process timed out after " + PYTHON_TIMEOUT_SECONDS + " seconds");
+        }
+
+        int exitCode = process.exitValue();
         if (exitCode != 0) {
             throw new IOException("Python process exited with code " + exitCode + ": " + output);
         }
@@ -152,6 +204,29 @@ public class StockAIService {
             }
         }
         throw new IllegalStateException("No python executable found in PATH");
+    }
+
+    private List<HistoricalDataEntity> sanitizeHistory(List<HistoricalDataEntity> history) {
+        if (history == null || history.isEmpty()) {
+            return List.of();
+        }
+        List<HistoricalDataEntity> valid = new ArrayList<>();
+        for (HistoricalDataEntity row : history) {
+            if (row == null) {
+                continue;
+            }
+            if (row.getCreatedDate() == null || row.getSymbol() == null || row.getSymbol().isBlank()) {
+                continue;
+            }
+            if (!Double.isFinite(row.getOpen()) || !Double.isFinite(row.getHigh()) || !Double.isFinite(row.getLow()) || !Double.isFinite(row.getClose()) || !Double.isFinite(row.getVolume())) {
+                continue;
+            }
+            if (row.getOpen() <= 0 || row.getHigh() <= 0 || row.getLow() <= 0 || row.getClose() <= 0) {
+                continue;
+            }
+            valid.add(row);
+        }
+        return valid;
     }
 
     private String buildCsv(List<HistoricalDataEntity> history) {
@@ -179,6 +254,24 @@ public class StockAIService {
         return builder.toString();
     }
 
+    public int countValidPredictionSamples(List<HistoricalDataEntity> history) {
+        if (history == null || history.isEmpty()) {
+            return 0;
+        }
+
+        int validSampleCount = 0;
+        for (int index = LOOKBACK_DAYS; index < history.size() - 1; index++) {
+            double[] features = features(history, index);
+            HistoricalDataEntity current = history.get(index);
+            HistoricalDataEntity next = history.get(index + 1);
+            if (features == null || current.getClose() <= 0 || next.getClose() <= 0) {
+                continue;
+            }
+            validSampleCount++;
+        }
+        return validSampleCount;
+    }
+
     private AnalysisResult analyzeWithLogistic(List<HistoricalDataEntity> history) {
         List<Sample> samples = new ArrayList<>();
         for (int index = LOOKBACK_DAYS; index < history.size() - 1; index++) {
@@ -198,7 +291,11 @@ public class StockAIService {
 
         int splitIndex = (int) (samples.size() * TRAINING_FRACTION);
         int validationCount = samples.size() - splitIndex;
+        log.debug("Model validation debug: rowCount={}, validSampleCount={}, splitIndex={}, validationCount={}, minTrainingSamples={}, minValidationSamples={}",
+                history.size(), samples.size(), splitIndex, validationCount, MIN_TRAINING_SAMPLES, MIN_VALIDATION_SAMPLES);
         if (splitIndex < MIN_TRAINING_SAMPLES || validationCount < MIN_VALIDATION_SAMPLES) {
+            log.debug("Skipping model analysis due to insufficient samples. rowCount={}, validSampleCount={}, splitIndex={}, validationCount={}",
+                    history.size(), samples.size(), splitIndex, validationCount);
             return null;
         }
 
@@ -229,6 +326,7 @@ public class StockAIService {
 
         double[] latestFeatures = features(history, history.size() - 1);
         if (latestFeatures == null) {
+            log.debug("Skipping model analysis because latest feature vector is null. rowCount={}, validSampleCount={}", history.size(), samples.size());
             return null;
         }
 
@@ -236,6 +334,7 @@ public class StockAIService {
         LinearModel priceModel = LinearModel.train(normalizedAll, priceTargets);
         double upProbability = finalModel.probability(finalStandardizer.transform(latestFeatures));
         double[] predictedChanges = priceModel.predict(finalStandardizer.transform(latestFeatures));
+
         double currentClose = history.get(history.size() - 1).getClose();
         double predictedClose = positivePrice(currentClose, predictedChanges[2]);
         double predictedHigh = Math.max(predictedClose, positivePrice(currentClose, predictedChanges[0]));
@@ -254,6 +353,40 @@ public class StockAIService {
                 (1.0 - upProbability) * 100.0,
                 validationCount,
                 correctPredictions);
+    }
+
+    private AnalysisResult buildFallbackAnalysis(List<HistoricalDataEntity> history) {
+        if (history == null || history.isEmpty()) {
+            return null;
+        }
+
+        HistoricalDataEntity latest = history.get(history.size() - 1);
+        HistoricalDataEntity previous = history.size() > 1 ? history.get(history.size() - 2) : latest;
+        double currentClose = latest.getClose();
+        double previousClose = previous.getClose();
+        double trendPercent = previousClose > 0 ? percentage(currentClose, previousClose) : 0.0;
+        double predictedClose = currentClose * (1.0 + (trendPercent / 100.0));
+        double predictedHigh = Math.max(currentClose, predictedClose) * 1.01;
+        double predictedLow = Math.min(currentClose, predictedClose) * 0.99;
+        String direction = trendPercent >= 0.0 ? "Up" : "Down";
+        double confidence = Math.min(86.0, 50.0 + Math.abs(trendPercent) * 2.0);
+        double upProbability = direction.equals("Up") ? confidence / 100.0 : (100.0 - confidence) / 100.0;
+        double downProbability = 1.0 - upProbability;
+
+        return new AnalysisResult(
+                predictedHigh,
+                predictedLow,
+                predictedClose,
+                percentage(predictedHigh, currentClose),
+                percentage(predictedLow, currentClose),
+                percentage(predictedClose, currentClose),
+                direction,
+                confidence,
+                upProbability * 100.0,
+                downProbability * 100.0,
+                0,
+                0
+        );
     }
 
     private static double[] features(List<HistoricalDataEntity> history, int index) {
@@ -490,3 +623,4 @@ public class StockAIService {
         }
     }
 }
+

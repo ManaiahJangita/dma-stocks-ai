@@ -8,14 +8,13 @@ import com.stockai.repository.AuditLogRepository;
 import com.stockai.repository.PlansRepository;
 import com.stockai.repository.UserRepository;
 import com.stockai.service.interf.PlansService;
-import org.springframework.beans.BeanUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -29,6 +28,7 @@ public class PlansServiceImpl implements PlansService {
 
     @Autowired
     private UserRepository userRepository;
+
     @Override
     public String addPlan(PlanDto planDto) {
         log.info("adding plan method execution started.");
@@ -70,6 +70,22 @@ public class PlansServiceImpl implements PlansService {
         }
         log.info("plan available for user {}", planDto.getUserName());
         return "Plan_Available.";
+    }
+
+    @Override
+    public PlanDto getPlanByUserName(String email) {
+        if (email == null || email.isBlank()) {
+            return null;
+        }
+
+        PlanEntity planEntity = plansRepository.findByUserName(email);
+        if (planEntity == null) {
+            return null;
+        }
+
+        PlanDto planDto = new PlanDto();
+        BeanUtils.copyProperties(planEntity, planDto);
+        return planDto;
     }
 
     private void audit(PlanDto user, String email, String eventType) {

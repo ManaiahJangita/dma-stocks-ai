@@ -1,9 +1,9 @@
 package com.stockai.controller;
 
 import com.stockai.apiconstants.ApiConstants;
+import com.stockai.dto.PasswordResetDto;
 import com.stockai.dto.RegistrationFormDto;
 import com.stockai.dto.UserDetailsDto;
-import com.stockai.dto.PasswordResetDto;
 import com.stockai.dto.UserDto;
 import com.stockai.service.interf.RegistrationService;
 import com.stockai.service.interf.UserDetailsService;
@@ -17,14 +17,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.mail.MailException;
-import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.util.Base64;

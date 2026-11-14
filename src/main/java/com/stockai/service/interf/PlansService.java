@@ -5,4 +5,6 @@ import com.stockai.dto.PlanDto;
 public interface PlansService {
 
     String addPlan(PlanDto filters);
+
+    PlanDto getPlanByUserName(String email);
 }

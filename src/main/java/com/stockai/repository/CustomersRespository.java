@@ -9,7 +9,7 @@ import java.util.List;
 @Repository
 public interface CustomersRespository {
 
-     List<CustomerEntity> fetchAllCustomers();
+    List<CustomerEntity> fetchAllCustomers();
 
     List<CustomerEntity> findCustomers(CustomersFilterDto filters);
 

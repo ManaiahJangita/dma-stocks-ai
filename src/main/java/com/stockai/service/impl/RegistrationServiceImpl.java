@@ -34,8 +34,8 @@ public class RegistrationServiceImpl implements RegistrationService {
     @Transactional
     public String registerUser(UserDto userDetailsDto) {
         if (userDetailsDto == null || userDetailsDto.getFirstName() == null || userDetailsDto.getFirstName().isBlank()
-            || userDetailsDto.getLastName() == null || userDetailsDto.getLastName().isBlank()
-            || userDetailsDto.getEmail() == null || userDetailsDto.getEmail().isBlank()
+                || userDetailsDto.getLastName() == null || userDetailsDto.getLastName().isBlank()
+                || userDetailsDto.getEmail() == null || userDetailsDto.getEmail().isBlank()
                 || userDetailsDto.getPassword() == null || userDetailsDto.getPassword().length() < 8
                 || userDetailsDto.getMobileNumber() <= 0) {
             throw new IllegalArgumentException("Valid email, password (at least 8 characters), and mobile number are required");
@@ -82,7 +82,7 @@ public class RegistrationServiceImpl implements RegistrationService {
         userModel.setUpdatedDate(LocalDate.now());
         userModel.setStatus("Active");
         userRepository.save(userModel);
-        audit(userModel,userModel.getEmail(),"User_Register_Success_fully");
+        audit(userModel, userModel.getEmail(), "User_Register_Success_fully");
         return "User registered successfully";
     }
 

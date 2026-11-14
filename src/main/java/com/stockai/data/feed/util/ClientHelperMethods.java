@@ -6,7 +6,6 @@ import com.stockai.data.feed.AngelOneTimeFrameInterval;
 import com.stockai.dto.InstrumentsDto;
 import com.stockai.dto.StockV3Dto;
 import com.stockai.entity.DailyStockModel;
-import com.stockai.entity.HistoricalDataEntity;
 import com.stockai.repository.InstrumentsRepository;
 import com.stockai.service.impl.HistoricalDataService;
 import com.stockai.service.interf.DailyStockService;
@@ -29,12 +28,9 @@ public class ClientHelperMethods {
     public static String updateDailyStockData(InstrumentsRepository instrumentsRepository, DailyStockService dailyStockService, AngelOneService angelOneService) {
         log.info("Started Storing daily stocks data");
         List<String> stockNamesList = instrumentsRepository.findAllInstruments();
+        LocalDate today = LocalDate.now(); // Adjusting to get the last trading day
         LocalDate lastTradingDay = StockUtil.getLastTradingDay();
-        LocalDateTime startDate = LocalDate.now().atStartOfDay();
-        if(lastTradingDay.atStartOfDay() != startDate ) {
-            log.info("Last trading day is not same as start date, hence skipping the daily stock data update.");
-            return "Last trading day is not same as start date, hence skipping the daily stock data update.";
-        }
+        LocalDateTime startDate = today.atStartOfDay();
         List<InstrumentsDto> instruments = InstrumentsMap.instrumentsDto(stockNamesList);
         LocalDateTime endDate = lastTradingDay.atTime(LocalTime.now());
         int count = dailyStockService.dailyStockServiceCount();
@@ -44,7 +40,7 @@ public class ClientHelperMethods {
         for (InstrumentsDto instrument : instruments) {
             List<StockV3Dto> historicalData = angelOneService.getHistoricalData(instrument.getSymbol(), AngelOneTimeFrameInterval.ONE_DAY, startDate, endDate);
             if (!CollectionUtils.isEmpty(historicalData)) {
-                saveDailyStockData(getDailyStockModel(historicalData),dailyStockService);
+                saveDailyStockData(getDailyStockModel(historicalData), dailyStockService);
             } else {
                 log.warn("Stock {} not found in the angelone hence skipped to import the data.", instrument.getSymbol());
             }
@@ -54,7 +50,7 @@ public class ClientHelperMethods {
         return "Completed Storing daily stocks data";
     }
 
-    private static void saveDailyStockData(List<DailyStockModel> models,DailyStockService dailyStockService) {
+    private static void saveDailyStockData(List<DailyStockModel> models, DailyStockService dailyStockService) {
         log.info("Saving daily stock data for {} records", models.size());
         if (!CollectionUtils.isEmpty(models)) {
             dailyStockService.processDailyStockData(models);

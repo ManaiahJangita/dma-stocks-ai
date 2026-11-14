@@ -18,9 +18,6 @@ import java.time.LocalTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static org.aspectj.asm.internal.ProgramElement.trim;
-
-
 public class StockUtil {
     private static final String ALL = "ALL";
 
@@ -224,10 +221,10 @@ public class StockUtil {
                     stockV3Dto.setHigh(stockDto.getCandleHigh());
                     stockV3Dto.setLow(stockDto.getCandleLow());
                     stockV3Dto.setClose(stockDto.getCandleClose());
-                    stockV3Dto.setPtsC(MathUtil.parseDouble(trim(stockDto.getPtsC())));
-                    stockV3Dto.setPer(MathUtil.parseDouble(trim(stockDto.getPer())));
-                    stockV3Dto.setVolume(MathUtil.parseLong(trim(stockDto.getTrdVol())));
-                    stockV3Dto.setLtP(MathUtil.parseDouble(trim(stockDto.getLtP())));
+                    stockV3Dto.setPtsC(MathUtil.parseDouble(StringUtils.trimWhitespace(stockDto.getPtsC())));
+                    stockV3Dto.setPer(MathUtil.parseDouble(StringUtils.trimWhitespace(stockDto.getPer())));
+                    stockV3Dto.setVolume(MathUtil.parseLong(StringUtils.trimWhitespace(stockDto.getTrdVol())));
+                    stockV3Dto.setLtP(MathUtil.parseDouble(StringUtils.trimWhitespace(stockDto.getLtP())));
 
                     patternStocks.add(stockV3Dto);
                 } catch (Exception e) {

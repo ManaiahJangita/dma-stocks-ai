@@ -8,12 +8,12 @@ import java.util.List;
 
 @Repository
 public interface DashboardRepository {
-	List<DashboardEntity> findAllDashboardData(DashboardFilterDto filters);
+    List<DashboardEntity> findAllDashboardData(DashboardFilterDto filters);
 
-	void replaceDashboardData(List<DashboardEntity> rows);
+    void replaceDashboardData(List<DashboardEntity> rows);
 
-	void deleteDashboardRecords();
+    void deleteDashboardRecords();
 
-	List<DashboardEntity> findAllDashboardSummary();
+    List<DashboardEntity> findAllDashboardSummary();
 
 }

@@ -7,11 +7,11 @@ import java.util.List;
 
 @Repository
 public interface PlansRepository {
-	void addPlan(PlanEntity planEntity);
+    void addPlan(PlanEntity planEntity);
 
-	PlanEntity findByUserName(String name);
+    PlanEntity findByUserName(String name);
 
-	PlanEntity updatePlan(PlanEntity planEntity);
+    PlanEntity updatePlan(PlanEntity planEntity);
 
-	List<PlanEntity> findAllPlans();
+    List<PlanEntity> findAllPlans();
 }

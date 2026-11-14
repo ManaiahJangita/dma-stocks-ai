@@ -2,17 +2,15 @@ package com.stockai.service.interf;
 
 import com.stockai.dto.*;
 
-import java.util.List;
-
 public interface FiltersService {
 
-    public ReportFilterDto getReportFilters();
+    ReportFilterDto getReportFilters();
 
-    public PatternFilterDto getPatternFilters();
+    PatternFilterDto getPatternFilters();
 
-    public MarketFiltersDto getStockMarketFilters();
+    MarketFiltersDto getStockMarketFilters();
 
-    public DashboardFilterDto getDashBoardFilters();
+    DashboardFilterDto getDashBoardFilters();
 
-    public StockPredictionFiltersDto getStockPredictionFilters();
+    StockPredictionFiltersDto getStockPredictionFilters();
 }

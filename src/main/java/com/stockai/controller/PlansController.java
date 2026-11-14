@@ -18,7 +18,7 @@ public class PlansController {
 
     @PostMapping("/save-plans")
     public ResponseEntity<String> savePlan(@RequestBody PlanDto planDto) {
-        if(Objects.isNull(planDto)) {
+        if (Objects.isNull(planDto)) {
             return ResponseEntity.badRequest().body("Plan data is required");
         }
         String response = plansService.addPlan(planDto);
@@ -26,5 +26,19 @@ public class PlansController {
             return ResponseEntity.noContent().build();
         }
         return new ResponseEntity<>(response, HttpStatus.OK);
+    }
+
+    @GetMapping("/by-email")
+    public ResponseEntity<PlanDto> getPlanByEmail(@RequestParam String email) {
+        if (!StringUtils.hasText(email)) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        PlanDto planDto = plansService.getPlanByUserName(email);
+        if (planDto == null) {
+            return ResponseEntity.noContent().build();
+        }
+
+        return ResponseEntity.ok(planDto);
     }
 }

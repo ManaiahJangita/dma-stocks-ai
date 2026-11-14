@@ -1,0 +1,5 @@
+{
+  "status" : "trained",
+  "updated_at" : [ 2026, 11, 13 ],
+  "output" : "{\"status\": \"success\", \"model_path\": \"E:\\\\dma-stocks\\\\dma-stocks-ai\\\\python\\\\models\\\\stock_prediction_model.joblib\", \"model_name\": \"xgboost\", \"features\": [\"momentum_1\", \"momentum_5\", \"momentum_10\", \"momentum_20\", \"range_pct\", \"open_gap\", \"close_gap\", \"volume_signal\", \"volatility\", \"rsi_14\", \"trend_strength\"], \"validation_summary\": {\"accuracy_percent\": 55.96, \"precision_percent\": 56.95, \"recall_percent\": 16.75, \"f1_percent\": 25.77, \"folds\": 5}}"
+}

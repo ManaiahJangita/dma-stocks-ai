@@ -1,10 +1,8 @@
 package com.stockai.service.impl;
 
-import com.stockai.dto.StockV3Dto;
 import com.stockai.entity.DailyStockModel;
 import com.stockai.entity.HistoricalDataEntity;
 import com.stockai.repository.DailyStockRepository;
-import com.stockai.repository.HistoricalDataImpl;
 import com.stockai.service.interf.DailyStockService;
 import com.stockai.utils.MathUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -12,12 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 @Service
 @Slf4j
@@ -76,15 +70,9 @@ public class DailyStockServiceImpl implements DailyStockService {
         }
     }
 
-    @Override
-    public void fullData() {
-        List<DailyStockModel> dailyStockModels = dailyStockRepository.fullData();
-        log.info("Fetched {} records from daily stock data", dailyStockModels.size());
-    }
-
     private List<HistoricalDataEntity> getAllStockV3Dto(List<DailyStockModel> dailyStockModels) {
         List<HistoricalDataEntity> historicalDataEntities = new ArrayList<>();
-        for(DailyStockModel model : dailyStockModels){
+        for (DailyStockModel model : dailyStockModels) {
             HistoricalDataEntity dto = new HistoricalDataEntity();
             dto.setSymbol(model.getSymbol());
             dto.setOpen(Double.parseDouble(model.getOpen()));

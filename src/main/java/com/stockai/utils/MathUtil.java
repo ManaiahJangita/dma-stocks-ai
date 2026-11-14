@@ -17,23 +17,6 @@ public class MathUtil {
     }
 
     /**
-     * Rounds the given double value to two decimal places and the result should
-     * be divisible by 5.
-     *
-     * @param value the double value to be rounded
-     * @return the value rounded to two decimal places and divisible by 5
-     */
-    public static Double roundToTwoDigitsDivisiableBy5(double value) {
-        double result = Math.round(value * 5) / 5.0;
-
-        if ((result * 100.0) / 10 != 0) {
-            result += 0.05;
-            result = roundToTwoDigits(result);
-        }
-        return result;
-    }
-
-    /**
      * Calculate the mean deviation for a given array of numbers.
      *
      * @param numArray the array of numbers
@@ -218,6 +201,7 @@ public class MathUtil {
     }
 
     public static double getToerancePercentage(double value) {
+
         double tolerancePercentage = 0.3;
         if (value <= 300) {
             tolerancePercentage = 1;
@@ -395,21 +379,6 @@ public class MathUtil {
         }
 
         return rollingMin;
-    }
-
-    public static void main(String args[]) {
-        System.out.println("main util.");
-        System.out.println(getPercentageValue(100, 1.5));
-        System.out.println(getPercentageValue(300, 2));
-        System.out.println(roundToTwoDigitsDivisiableBy5(1043.2));
-
-        double range = 5229 - 5140;
-        double wick = 5229 - 5191.8;
-        double percent = wick * 100 / range;
-        System.out.println(percent);
-
-        final double cagrValue = calcualteCAGRValue(10000, 100000, 20);
-        System.out.println(cagrValue);
     }
 
     public static String getNumberNotation(double number) {

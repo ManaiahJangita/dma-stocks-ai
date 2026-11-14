@@ -2,10 +2,6 @@ package com.stockai.utils;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
-import java.io.UnsupportedEncodingException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
 import java.util.Base64;
 
 public class EncryptUtil {
@@ -36,13 +32,14 @@ public class EncryptUtil {
     }
 
     public static String decryptThirdParty(String strToDecrypt) {
-        try{
+        try {
             return decrypt(strToDecrypt);
         } catch (Exception e) {
             e.printStackTrace();
             return null;
         }
     }
+
     public static String decrypt(String encryptedData) throws Exception {
         String adjustedKey = adjustKey(SECRET);
         SecretKeySpec secretKeySpec = new SecretKeySpec(adjustedKey.getBytes(CHARSET), "AES");

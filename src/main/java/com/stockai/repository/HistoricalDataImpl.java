@@ -8,24 +8,40 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 
 @Repository
 @Transactional
+@Slf4j
 public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRespository, DashboardRepository, AuditLogRepository,
         InstrumentsRepository, DailyStockRepository, FiltersRepository, PredictionRepository, MarketRepository,
-        PatternsRepository, PaymentRepository, ReportsRepository, PlansRepository, StatementRepository, HistoricalDashboardRepository {
+        PatternsRepository, PaymentRepository, ReportsRepository, PlansRepository, StatementRepository, HistoricalDashboardRepository, PredictionComparisonRepository,
+        NotificationRepository {
     @PersistenceContext
     EntityManager entityManager = null;
 
     @Override
     @Transactional
     public void saveAllHistoricalData(List<HistoricalDataEntity> historicalDataEntities) {
+        LocalDate createdDate = LocalDate.now();
+        Number countResult = (Number) entityManager.createNativeQuery(
+                        "SELECT COUNT(*) FROM dmastock.historical_data WHERE created_date = :createdDate")
+                .setParameter("createdDate", createdDate)
+                .getSingleResult();
+        int currentHistoryCount = countResult != null ? countResult.intValue() : 0;
+        if (currentHistoryCount != 0) {
+            entityManager.createNativeQuery("DELETE FROM dmastock.historical_data WHERE created_date = :createdDate")
+                    .setParameter("createdDate", createdDate)
+                    .executeUpdate();
+        }
+        log.info("Saving {} historical rows", historicalDataEntities == null ? 0 : historicalDataEntities.size());
         for (HistoricalDataEntity entity : historicalDataEntities) {
             entityManager.persist(entity);
         }
@@ -34,24 +50,45 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
 
     @Override
     public List<HistoricalDataEntity> findAll(LocalDate startDate, LocalDate endDate) {
-        return entityManager.createNativeQuery("SELECT * FROM dmastock.historical_data WHERE created_date BETWEEN :startDate AND :endDate ORDER BY symbol, created_date", HistoricalDataEntity.class)
-                .setParameter("startDate", startDate)
-                .setParameter("endDate", endDate)
-                .getResultList();
+        log.info("Repository query: historical_data between {} and {}", startDate, endDate);
+        try {
+            List<HistoricalDataEntity> rows = entityManager.createNativeQuery(
+                            "SELECT * FROM dmastock.historical_data WHERE created_date BETWEEN :startDate AND :endDate ORDER BY symbol, created_date",
+                            HistoricalDataEntity.class)
+                    .setParameter("startDate", startDate)
+                    .setParameter("endDate", endDate)
+                    .getResultList();
+            log.info("Repository query returned {} rows for historical_data between {} and {}", rows.size(), startDate, endDate);
+            return rows;
+        } catch (Exception e) {
+            log.error("Repository query failed for historical_data between {} and {}", startDate, endDate, e);
+            throw e;
+        }
     }
+
 
     @Override
-    public List<HistoricalDataEntity> findAll(LocalDate startDate, LocalDate endDate, int offset, int limit) {
-        return entityManager.createNativeQuery(
-                        "SELECT * FROM dmastock.historical_data WHERE created_date BETWEEN :startDate AND :endDate ORDER BY symbol, created_date LIMIT :limit OFFSET :offset",
-                        HistoricalDataEntity.class)
-                .setParameter("startDate", startDate)
-                .setParameter("endDate", endDate)
-                .setParameter("limit", limit)
-                .setParameter("offset", offset)
-                .getResultList();
+    public LocalDate findLatestCreatedDate() {
+        try {
+            Object result = entityManager.createQuery("SELECT MAX(h.createdDate) FROM HistoricalDataEntity h").getSingleResult();
+            if (result == null) {
+                return null;
+            }
+            if (result instanceof LocalDate localDate) {
+                return localDate;
+            }
+            if (result instanceof java.sql.Date sqlDate) {
+                return sqlDate.toLocalDate();
+            }
+            if (result instanceof java.util.Date utilDate) {
+                return utilDate.toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+            }
+            return LocalDate.parse(result.toString());
+        } catch (Exception e) {
+            log.error("Failed to fetch latest historical created date", e);
+            return null;
+        }
     }
-
 
     @Override
     @Transactional
@@ -70,14 +107,6 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
     @Override
     public List<String> findInstrumentsSymbols() {
         return entityManager.createNativeQuery("SELECT symbol FROM dmastock.instruments").getResultList();
-    }
-
-    @Override
-    public List<InstrumentsEntity> findInstrumentsByExchange(String exchange) {
-        return entityManager.createQuery(
-                        "SELECT i FROM InstrumentsEntity i WHERE UPPER(i.exchSeg) = :exchange", InstrumentsEntity.class)
-                .setParameter("exchange", exchange.trim().toUpperCase(Locale.ROOT))
-                .getResultList();
     }
 
     @Override
@@ -172,6 +201,17 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         return null;
     }
 
+    private static Predicate buildStringInPredicate(CriteriaBuilder builder, jakarta.persistence.criteria.Expression<String> field, String value) {
+        if (value == null || value.isBlank()) {
+            return builder.conjunction();
+        }
+        String normalized = value.trim();
+        if (normalized.isEmpty()) {
+            return builder.conjunction();
+        }
+        return field.in(normalized);
+    }
+
     private static Predicate buildStringInPredicate(CriteriaBuilder builder, jakarta.persistence.criteria.Expression<String> field, List<String> values) {
         if (values == null || values.isEmpty()) {
             return builder.conjunction();
@@ -197,7 +237,7 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
 
     @Override
     public void deleteDashboardRecords() {
-        entityManager.createQuery("DELETE FROM DashboardEntity").executeUpdate();
+        entityManager.createNativeQuery("TRUNCATE TABLE dmastock.dashboard").executeUpdate();
     }
 
     @Override
@@ -216,6 +256,11 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         CriteriaQuery<MarketEntity> query = builder.createQuery(MarketEntity.class);
         Root<MarketEntity> root = query.from(MarketEntity.class);
         List<Predicate> predicates = new ArrayList<>();
+
+        if (filters == null) {
+            return entityManager.createQuery(query.select(root)).getResultList();
+        }
+
         if (filters.getSymbol() != null && !filters.getSymbol().isEmpty()) {
             predicates.add(buildStringInPredicate(builder, root.get("symbol"), filters.getSymbol()));
         }
@@ -225,7 +270,7 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         if (filters.getNextDayHigh() != null && !filters.getNextDayHigh().isEmpty()) {
             predicates.add(buildMultiValueRangePredicate(builder, root, "nextDayHigh", filters.getNextDayHigh()));
         }
-        if(filters.getNextDayLow() != null && !filters.getNextDayLow().isEmpty()) {
+        if (filters.getNextDayLow() != null && !filters.getNextDayLow().isEmpty()) {
             predicates.add(buildMultiValueRangePredicate(builder, root, "nextDayLow", filters.getNextDayLow()));
         }
         query.where(predicates.toArray(Predicate[]::new));
@@ -279,17 +324,33 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
 
     @Override
     public int saveAllCustomers(List<CustomerEntity> entities) {
+        if (entities == null || entities.isEmpty()) {
+            return 0;
+        }
+
         int count = 0;
         for (CustomerEntity entity : entities) {
-            CustomerEntity existing = entityManager.find(CustomerEntity.class, entity.getUserId());
-            if (!Objects.nonNull(existing)) {
-                entityManager.persist(entity);
-                count++;
-            } else {
-                entityManager.merge(entity);
-                count++;
+            if (entity == null || entity.getUserId() == null) {
+                continue;
             }
+
+            CustomerEntity existing = entityManager.createQuery(
+                            "SELECT c FROM CustomerEntity c WHERE c.userId = :userId", CustomerEntity.class)
+                    .setParameter("userId", entity.getUserId())
+                    .setMaxResults(1)
+                    .getResultStream()
+                    .findFirst()
+                    .orElse(null);
+
+            if (existing != null) {
+                entity.setId(existing.getId());
+                entityManager.merge(entity);
+            } else {
+                entityManager.persist(entity);
+            }
+            count++;
         }
+        entityManager.flush();
         return count;
     }
 
@@ -336,6 +397,16 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         if (rows == null || rows.isEmpty()) {
             return;
         }
+        LocalDate createdDate = LocalDate.now();
+        Number countResult = (Number) entityManager.createNativeQuery("SELECT COUNT(*) FROM dmastock.historical_markets where created_date = :createdDate")
+                .setParameter("createdDate", createdDate)
+                .getSingleResult();
+        int currentHistoryCount = countResult != null ? countResult.intValue() : 0;
+        if (currentHistoryCount != 0) {
+            entityManager.createNativeQuery("DELETE FROM dmastock.historical_markets WHERE created_date = :createdDate")
+                    .setParameter("createdDate", createdDate)
+                    .executeUpdate();
+        }
         int count = 0;
         for (HistoricalMarketEntity row : rows) {
             try {
@@ -357,7 +428,7 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
 
     @Override
     public void deleteHistoricalMarkets() {
-        entityManager.createQuery("DELETE FROM MarketEntity").executeUpdate();
+        entityManager.createNativeQuery("TRUNCATE TABLE dmastock.markets").executeUpdate();
     }
 
     @Override
@@ -372,10 +443,10 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
     @Override
     @Transactional
     public int replacePatterns(List<PatternEntity> rows) {
-        if(rows == null || rows.isEmpty()) {
+        if (rows == null || rows.isEmpty()) {
             return 0;
         }
-       for(PatternEntity row : rows) {
+        for (PatternEntity row : rows) {
             entityManager.persist(row);
         }
         entityManager.flush();
@@ -385,7 +456,7 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
 
     @Override
     public void truncatePatternRecords() {
-        entityManager.createQuery("DELETE FROM PatternEntity").executeUpdate();
+        entityManager.createNativeQuery("TRUNCATE TABLE dmastock.patterns").executeUpdate();
     }
 
     @Override
@@ -393,6 +464,16 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
     public void saveAllHistoricalPatterns(List<HistoricalPatternEntity> rows) {
         if (rows == null || rows.isEmpty()) {
             return;
+        }
+        LocalDate createdDate = LocalDate.now();
+        Number countResult = (Number) entityManager.createNativeQuery("SELECT COUNT(*) FROM dmastock.historical_patterns WHERE created_date = :createdDate")
+                .setParameter("createdDate", createdDate)
+                .getSingleResult();
+        int currentHistoryCount = countResult != null ? countResult.intValue() : 0;
+        if (currentHistoryCount != 0) {
+            entityManager.createNativeQuery("DELETE FROM dmastock.historical_patterns WHERE created_date = :createdDate")
+                    .setParameter("createdDate", createdDate)
+                    .executeUpdate();
         }
         int count = 0;
         for (HistoricalPatternEntity row : rows) {
@@ -419,7 +500,7 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         CriteriaQuery<PatternEntity> query = builder.createQuery(PatternEntity.class);
         Root<PatternEntity> root = query.from(PatternEntity.class);
         List<Predicate> predicates = new ArrayList<>();
-      if(filters.getPatterns() != null) {
+        if (filters.getPatterns() != null) {
             predicates.add(builder.equal(root.get("name"), filters.getPatterns().stream().findFirst().orElse(null)));
         }
         query.where(predicates.toArray(Predicate[]::new));
@@ -489,16 +570,32 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         if (plans == null || plans.isEmpty()) {
             return;
         }
+
         for (PaymentEntity plan : plans) {
-            PaymentEntity existing = entityManager.find(PaymentEntity.class, plan.getPlanId());
-            if (!Objects.nonNull(existing)) {
-                entityManager.persist(plan);
-            } else {
+            if (plan == null) {
+                continue;
+            }
+
+            PaymentEntity existing = null;
+            if (plan.getPlanId() != null) {
+                existing = entityManager.createQuery(
+                                "SELECT p FROM PaymentEntity p WHERE p.planId = :planId", PaymentEntity.class)
+                        .setParameter("planId", plan.getPlanId())
+                        .setMaxResults(1)
+                        .getResultStream()
+                        .findFirst()
+                        .orElse(null);
+            }
+
+            if (existing != null) {
+                plan.setId(existing.getId());
                 entityManager.merge(plan);
+            } else {
+                entityManager.persist(plan);
             }
         }
         entityManager.flush();
-
+        entityManager.clear();
     }
 
     @Override
@@ -513,7 +610,7 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         if (filters.getStatus() != null) {
             predicates.add(builder.equal(root.get("status"), filters.getStatus()));
         }
-        if(filters.getUserName() != null && filters.getStatus() != null) {
+        if (filters.getUserName() != null && filters.getStatus() != null) {
             predicates.add(builder.and(builder.equal(root.get("userName"), filters.getUserName())));
         }
         query.where(predicates.toArray(Predicate[]::new));
@@ -635,7 +732,9 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
 
     @Override
     public void truncateAudiLogs() {
-        entityManager.createQuery("DELETE FROM AuditLogEntity").executeUpdate();
+        entityManager.createNativeQuery("TRUNCATE TABLE dmastock.audit_logs").executeUpdate();
+        entityManager.flush();
+        entityManager.clear();
     }
 
     /* Below written queries all for statement related quires*/
@@ -701,6 +800,16 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         if (predictions == null || predictions.isEmpty()) {
             return;
         }
+        LocalDate createdDate = LocalDate.now();
+        Number countResult = (Number) entityManager.createNativeQuery("SELECT COUNT(*) FROM dmastock.historical_prediction WHERE created_date = :createdDate")
+                .setParameter("createdDate", createdDate)
+                .getSingleResult();
+        int currentHistoryCount = countResult != null ? countResult.intValue() : 0;
+        if (currentHistoryCount != 0) {
+            entityManager.createNativeQuery("DELETE FROM dmastock.historical_prediction WHERE created_date = :createdDate")
+                    .setParameter("createdDate", createdDate)
+                    .executeUpdate();
+        }
         for (HistoricalPredictionEntity prediction : predictions) {
             if (prediction.getId() != null) {
                 prediction.setId(null);
@@ -717,9 +826,13 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
     }
 
     @Override
-    @Transactional
-    public void deletePredictionRecords() {
-        entityManager.createQuery("DELETE FROM PredictionEntity").executeUpdate();
+    public void truncatePredictionData() {
+        entityManager.createNativeQuery("TRUNCATE TABLE dmastock.prediction").executeUpdate();
+    }
+
+    @Override
+    public void truncatePredictionComparisonData() {
+        entityManager.createNativeQuery("TRUNCATE TABLE dmastock.prediction_comparison").executeUpdate();
     }
 
     @Override
@@ -737,11 +850,49 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         if (filters.getNextDayHigh() != null && !filters.getNextDayHigh().isEmpty()) {
             predicates.add(buildMultiValueRangePredicate(builder, root, "predictedHigh", filters.getNextDayHigh()));
         }
-        if(filters.getNextDayLow() != null && !filters.getNextDayLow().isEmpty()) {
+        if (filters.getNextDayLow() != null && !filters.getNextDayLow().isEmpty()) {
             predicates.add(buildMultiValueRangePredicate(builder, root, "predictedLow", filters.getNextDayLow()));
         }
         query.where(predicates.toArray(Predicate[]::new));
         return entityManager.createQuery(query).getResultList();
+    }
+
+    @Override
+    public LocalDate findLatestPredictionDate() {
+        try {
+            Object result = entityManager.createQuery("SELECT MAX(p.predictionDate) FROM PredictionEntity p").getSingleResult();
+            if (result == null) {
+                return null;
+            }
+            if (result instanceof LocalDate localDate) {
+                return localDate;
+            }
+            if (result instanceof java.sql.Date sqlDate) {
+                return sqlDate.toLocalDate();
+            }
+            if (result instanceof java.util.Date utilDate) {
+                return utilDate.toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+            }
+            return LocalDate.parse(result.toString());
+        } catch (Exception e) {
+            log.error("Failed to fetch latest prediction date", e);
+            return null;
+        }
+    }
+
+    @Override
+    public List<PredictionEntity> findByCreatedDateBetween(LocalDate startDate, LocalDate endDate) {
+        return entityManager.createQuery(
+                        "SELECT p FROM PredictionEntity p WHERE p.predictionDate BETWEEN :startDate AND :endDate ORDER BY p.symbol, p.predictionDate",
+                        PredictionEntity.class)
+                .setParameter("startDate", startDate)
+                .setParameter("endDate", endDate)
+                .getResultList();
+    }
+
+    @Override
+    public int countPredictionRecords() {
+        return ((Number) entityManager.createNativeQuery("SELECT COUNT(*) FROM dmastock.prediction").getSingleResult()).intValue();
     }
 
     // Historical Dashboard Repository Methods
@@ -751,6 +902,16 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
     public void saveAllHistoricalDashboards(List<HistoricalDashboardEntity> entities) {
         if (entities == null || entities.isEmpty()) {
             return;
+        }
+        LocalDate createdDate = LocalDate.now();
+        Number countResult = (Number) entityManager.createNativeQuery("SELECT COUNT(*) FROM dmastock.historical_dashboard WHERE created_date = :createdDate")
+                .setParameter("createdDate", createdDate)
+                .getSingleResult();
+        int currentHistoryCount = countResult != null ? countResult.intValue() : 0;
+        if (currentHistoryCount != 0) {
+            entityManager.createNativeQuery("DELETE FROM dmastock.historical_dashboard WHERE created_date = :createdDate")
+                    .setParameter("createdDate", createdDate)
+                    .executeUpdate();
         }
         int count = 0;
         for (HistoricalDashboardEntity entity : entities) {
@@ -768,6 +929,283 @@ public class HistoricalDataImpl implements HistoricalDataRepository, CustomersRe
         entityManager.clear();
     }
 
+    @Override
+    @Transactional
+    public void saveComparison(List<PredictionComparisonEntity> entities) {
+        if (entities == null || entities.isEmpty()) {
+            return;
+        }
+        for (PredictionComparisonEntity entity : entities) {
+            entityManager.persist(entity);
+        }
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+    @Override
+    @Transactional
+    public void archiveComparison(List<PredictionComparisonEntity> entities) {
+        if (entities == null || entities.isEmpty()) {
+            return;
+        }
+        LocalDate createdDate = LocalDate.now();
+        Number countResult = (Number) entityManager.createNativeQuery("SELECT COUNT(*) FROM dmastock.prediction_comparison_history WHERE created_at = :createdDate")
+                .setParameter("createdDate", createdDate)
+                .getSingleResult();
+        int currentHistoryCount = countResult != null ? countResult.intValue() : 0;
+        if (currentHistoryCount != 0) {
+            entityManager.createNativeQuery("DELETE FROM dmastock.prediction_comparison_history WHERE created_at = :createdDate")
+                    .setParameter("createdDate", createdDate)
+                    .executeUpdate();
+        }
+        for (PredictionComparisonEntity entity : entities) {
+            PredictionComparisonHistoryEntity history = new PredictionComparisonHistoryEntity();
+            history.setSymbol(entity.getSymbol());
+            history.setPredictionRunId(entity.getPredictionRunId());
+            history.setPredictionDate(entity.getPredictionDate());
+            history.setActualDate(entity.getActualDate());
+            history.setPredictedOpen(entity.getPredictedOpen());
+            history.setPredictedHigh(entity.getPredictedHigh());
+            history.setPredictedLow(entity.getPredictedLow());
+            history.setPredictedClose(entity.getPredictedClose());
+            history.setPredictedDirection(entity.getPredictedDirection());
+            history.setActualOpen(entity.getActualOpen());
+            history.setActualHigh(entity.getActualHigh());
+            history.setActualLow(entity.getActualLow());
+            history.setActualClose(entity.getActualClose());
+            history.setActualDirection(entity.getActualDirection());
+            history.setCloseDiff(entity.getCloseDiff());
+            history.setHighDiff(entity.getHighDiff());
+            history.setLowDiff(entity.getLowDiff());
+            history.setCloseDiffPercent(entity.getCloseDiffPercent());
+            history.setHighDiffPercent(entity.getHighDiffPercent());
+            history.setLowDiffPercent(entity.getLowDiffPercent());
+            history.setDirectionMatched(entity.getDirectionMatched());
+            history.setStatus(entity.getStatus());
+            history.setReason(entity.getReason());
+            history.setCreatedAt(entity.getCreatedAt());
+            history.setPredictedProbabilityUp(entity.getPredictedProbabilityUp());
+            history.setPredictedProbabilityDown(entity.getPredictedProbabilityDown());
+            history.setConfidencePercent(entity.getConfidencePercent());
+            history.setPredictedHighChangePct(entity.getPredictedHighChangePct());
+            history.setPredictedLowChangePct(entity.getPredictedLowChangePct());
+            history.setPredictedCloseChangePct(entity.getPredictedCloseChangePct());
+            history.setActualVsPredictedDirectionMatch(entity.getActualVsPredictedDirectionMatch());
+            history.setModelValidationAccuracyPercent(entity.getModelValidationAccuracyPercent());
+            history.setRetrainingFeedbackScore(entity.getRetrainingFeedbackScore());
+            entityManager.persist(history);
+        }
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+    @Override
+    public List<PredictionComparisonEntity> findByPredictionDate(LocalDate predictionDate) {
+        return entityManager.createQuery(
+                        "SELECT p FROM PredictionComparisonEntity p WHERE p.predictionDate = :predictionDate ORDER BY p.symbol",
+                        PredictionComparisonEntity.class)
+                .setParameter("predictionDate", predictionDate)
+                .getResultList();
+    }
+
+    @Override
+    public List<PredictionComparisonEntity> findBySymbolAndPredictionDate(String symbol, LocalDate predictionDate) {
+        return entityManager.createQuery(
+                        "SELECT p FROM PredictionComparisonEntity p WHERE p.symbol = :symbol AND p.predictionDate = :predictionDate ORDER BY p.actualDate",
+                        PredictionComparisonEntity.class)
+                .setParameter("symbol", symbol)
+                .setParameter("predictionDate", predictionDate)
+                .getResultList();
+    }
+
+    @Override
+    public MonthlyStatementSummaryDto getMonthlyStatementSummary(UUID userId, LocalDate fromDate, LocalDate toDate) {
+        if (userId == null) {
+            throw new IllegalArgumentException("userId is required");
+        }
+        if (fromDate == null || toDate == null || fromDate.isAfter(toDate)) {
+            throw new IllegalArgumentException("Valid fromDate and toDate are required");
+        }
+
+        MonthlyStatementSummaryDto summary = new MonthlyStatementSummaryDto();
+        summary.setUserId(userId);
+        summary.setFromDate(fromDate);
+        summary.setToDate(toDate);
+
+        String query = "SELECT s.tradeType, COALESCE(SUM(s.totalAmount), 0), COUNT(s.id) " +
+                "FROM StatementEntity s " +
+                "WHERE s.userId = :userId AND s.tradeDate BETWEEN :fromDate AND :toDate " +
+                "GROUP BY s.tradeType";
+
+        List<Object[]> rows = entityManager.createQuery(query, Object[].class)
+                .setParameter("userId", userId)
+                .setParameter("fromDate", fromDate)
+                .setParameter("toDate", toDate)
+                .getResultList();
+
+        BigDecimal totalBuyAmount = BigDecimal.ZERO;
+        BigDecimal totalSellAmount = BigDecimal.ZERO;
+        long buyRecordsCount = 0L;
+        long sellRecordsCount = 0L;
+
+        for (Object[] row : rows) {
+            String tradeType = row[0] != null ? row[0].toString() : null;
+            BigDecimal amount = row[1] != null ? new BigDecimal(row[1].toString()) : BigDecimal.ZERO;
+            Long count = row[2] != null ? Long.parseLong(row[2].toString()) : 0L;
+
+            if ("BUY".equalsIgnoreCase(tradeType)) {
+                totalBuyAmount = amount;
+                buyRecordsCount = count;
+            } else if ("SELL".equalsIgnoreCase(tradeType)) {
+                totalSellAmount = amount;
+                sellRecordsCount = count;
+            }
+        }
+
+        summary.setTotalBuyAmount(totalBuyAmount);
+        summary.setTotalSellAmount(totalSellAmount);
+        summary.setBuyRecordsCount(buyRecordsCount);
+        summary.setSellRecordsCount(sellRecordsCount);
+        summary.setNetAmount(totalSellAmount.subtract(totalBuyAmount));
+        return summary;
+    }
+
+    @Override
+    public List<NotificationEntity> findAllNotifications() {
+        return entityManager.createQuery("SELECT n FROM NotificationEntity n ORDER BY n.createdAt DESC", NotificationEntity.class)
+                .getResultList();
+    }
+
+    @Override
+    public List<NotificationEntity> findUnreadNotifications() {
+        return entityManager.createQuery("SELECT n FROM NotificationEntity n WHERE n.read = false ORDER BY n.createdAt DESC", NotificationEntity.class)
+                .getResultList();
+    }
+
+    @Override
+    @Transactional
+    public NotificationEntity saveNotification(NotificationEntity notification) {
+        if (notification == null) {
+            return null;
+        }
+        if (notification.getId() == null) {
+            entityManager.persist(notification);
+        } else {
+            entityManager.merge(notification);
+        }
+        entityManager.flush();
+        return notification;
+    }
+
+    @Override
+    @Transactional
+    public NotificationEntity markNotificationRead(UUID id) {
+        NotificationEntity notification = entityManager.find(NotificationEntity.class, id);
+        if (notification == null) {
+            return null;
+        }
+        notification.setRead(true);
+        notification.setReadAt(LocalDateTime.now());
+        entityManager.merge(notification);
+        entityManager.flush();
+        return notification;
+    }
 
 
+    @Override
+    public List<HistoricalMarketEntity> findHistoricalMarketDataByFilters(MarketHistoryFiltersDto filters) {
+        if (filters == null) {
+            return List.of();
+        }
+
+        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
+        CriteriaQuery<HistoricalMarketEntity> query = builder.createQuery(HistoricalMarketEntity.class);
+        Root<HistoricalMarketEntity> root = query.from(HistoricalMarketEntity.class);
+        List<Predicate> predicates = new ArrayList<>();
+
+        if (filters.getSymbol() != null && !filters.getSymbol().isEmpty()) {
+            predicates.add(buildStringInPredicate(builder, root.get("symbol"), filters.getSymbol()));
+        }
+        if (filters.getNextDayHigh() != null && !filters.getNextDayHigh().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "nextDayHigh", filters.getNextDayHigh()));
+        }
+        if (filters.getNextDayLow() != null && !filters.getNextDayLow().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "nextDayLow", filters.getNextDayLow()));
+        }
+        if (filters.getConfidenceScore() != null && !filters.getConfidenceScore().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "confidenceScore", filters.getConfidenceScore()));
+        }
+        if (filters.getCreatedDate() != null) {
+            predicates.add(builder.equal(root.get("createdDate"), filters.getCreatedDate()));
+        }
+        query.where(predicates.toArray(Predicate[]::new));
+        query.orderBy(builder.desc(root.get("createdDate")), builder.asc(root.get("symbol")));
+        return entityManager.createQuery(query).getResultList();
+    }
+
+
+    @Override
+    public List<HistoricalPredictionEntity> findHistoricalPredictionDataByFilters(HistoricalPredictionFiltersDto filters) {
+        if (filters == null) {
+            return List.of();
+        }
+
+        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
+        CriteriaQuery<HistoricalPredictionEntity> query = builder.createQuery(HistoricalPredictionEntity.class);
+        Root<HistoricalPredictionEntity> root = query.from(HistoricalPredictionEntity.class);
+        List<Predicate> predicates = new ArrayList<>();
+
+        if (filters.getSymbol() != null && !filters.getSymbol().isEmpty()) {
+            predicates.add(buildStringInPredicate(builder, root.get("symbol"), filters.getSymbol()));
+        }
+        if (filters.getNextDayHigh() != null && !filters.getNextDayHigh().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "predictedHigh", filters.getNextDayHigh()));
+        }
+        if (filters.getNextDayLow() != null && !filters.getNextDayLow().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "predictedLow", filters.getNextDayLow()));
+        }
+        if (filters.getConfidenceScore() != null && !filters.getConfidenceScore().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "confidencePercent", filters.getConfidenceScore()));
+        }
+        if (filters.getCreatedDate() != null) {
+            predicates.add(builder.equal(root.get("createdDate"), filters.getCreatedDate()));
+        }
+
+        query.where(predicates.toArray(Predicate[]::new));
+        query.orderBy(builder.desc(root.get("createdDate")), builder.asc(root.get("symbol")));
+        return entityManager.createQuery(query).getResultList();
+    }
+
+    @Override
+    public List<HistoricalDashboardEntity> findHistoricalDashboardDataByFilters(HistoricalDashboardFiltersDto filters) {
+        if (filters == null) {
+            return List.of();
+        }
+
+        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
+        CriteriaQuery<HistoricalDashboardEntity> query = builder.createQuery(HistoricalDashboardEntity.class);
+        Root<HistoricalDashboardEntity> root = query.from(HistoricalDashboardEntity.class);
+        List<Predicate> predicates = new ArrayList<>();
+
+        if (filters.getSymbol() != null && !filters.getSymbol().isEmpty()) {
+            predicates.add(buildStringInPredicate(builder, root.get("symbol"), filters.getSymbol()));
+        }
+        if (filters.getNextDayHighDiff() != null && !filters.getNextDayHighDiff().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "marketPredictionHighDiff", filters.getNextDayHighDiff()));
+        }
+        if (filters.getNextDayLowDiff() != null && !filters.getNextDayLowDiff().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "marketPredictionLowDiff", filters.getNextDayLowDiff()));
+        }
+        if (filters.getConfidenceScoreDiff() != null && !filters.getConfidenceScoreDiff().isEmpty()) {
+            predicates.add(buildMultiValueRangePredicate(builder, root, "confidenceScoreDiff", filters.getConfidenceScoreDiff()));
+        }
+        if (filters.getCreatedDate() != null) {
+            predicates.add(builder.equal(root.get("createdDate"), filters.getCreatedDate()));
+        }
+
+        query.where(predicates.toArray(Predicate[]::new));
+        query.orderBy(builder.desc(root.get("createdDate")), builder.asc(root.get("symbol")));
+        return entityManager.createQuery(query).getResultList();
+    }
 }
+

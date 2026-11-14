@@ -4,6 +4,7 @@ import com.stockai.entity.PlanEntity;
 import com.stockai.entity.User;
 import com.stockai.repository.PlansRepository;
 import com.stockai.repository.UserRepository;
+import com.stockai.schedulars.job.BasicJob;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -16,7 +17,7 @@ import java.util.List;
 
 @Slf4j
 @Component
-public class PlanStatusScheduler {
+public class PlanStatusScheduler extends BasicJob {
 
     @Autowired
     private UserRepository userRepository;
@@ -74,5 +75,9 @@ public class PlanStatusScheduler {
             log.info("PlanStatusScheduler: no user status changes needed");
         }
     }
-}
 
+    @Override
+    public void executeJob() {
+        checkAndUpdateUserPlanStatus();
+    }
+}

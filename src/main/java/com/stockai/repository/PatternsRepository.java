@@ -9,13 +9,13 @@ import java.util.List;
 
 @Repository
 public interface PatternsRepository {
-	List<PatternEntity> findAllPatternData(PatternEntity filters);
+    List<PatternEntity> findAllPatternData(PatternEntity filters);
 
-	int replacePatterns(List<PatternEntity> rows);
+    int replacePatterns(List<PatternEntity> rows);
 
-	void truncatePatternRecords();
+    void truncatePatternRecords();
 
-	void saveAllHistoricalPatterns(List<HistoricalPatternEntity> rows);
+    void saveAllHistoricalPatterns(List<HistoricalPatternEntity> rows);
 
-	List<PatternEntity> findPatternByFilters(PatternFilterDto filters);
+    List<PatternEntity> findPatternByFilters(PatternFilterDto filters);
 }

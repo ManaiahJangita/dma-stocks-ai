@@ -112,7 +112,6 @@ public class HistoricalMarketEntity {
     private Double distanceFrom52wHighPct;
 
 
-
     @Column(name = "distance_from_sma20_pct")
     private Double distanceFromSma20Pct;
 

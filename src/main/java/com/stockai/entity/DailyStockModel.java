@@ -10,7 +10,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "daily_stock" , schema = "dmastock")
+@Table(name = "daily_stock", schema = "dmastock")
 @JsonIgnoreProperties
 @Data
 public class DailyStockModel implements Candle {

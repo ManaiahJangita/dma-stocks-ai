@@ -5,10 +5,9 @@ import com.stockai.entity.MarketEntity;
 import com.stockai.entity.PatternEntity;
 import com.stockai.repository.MarketRepository;
 import com.stockai.repository.PatternsRepository;
-import com.stockai.utils.StockUtil;
+import com.stockai.schedulars.job.BasicJob;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -18,7 +17,7 @@ import java.util.stream.Collectors;
 
 @Component
 @Slf4j
-public class PatternSyncScheduler {
+public class PatternSyncScheduler extends BasicJob {
 
     @Autowired
     private MarketRepository marketRepository;
@@ -26,11 +25,7 @@ public class PatternSyncScheduler {
     @Autowired
     private PatternsRepository patternsRepository;
 
-    @Scheduled(cron = "0 10 19 ? * MON-FRI")
     public void executeJob() {
-        if (!StockUtil.isTradingDay()) {
-            return;
-        }
         try {
             int saved = syncTwoYearPatterns();
             log.info("Pattern sync completed. Saved {} rows", saved);
@@ -46,7 +41,6 @@ public class PatternSyncScheduler {
             log.warn("No market rows available for pattern calculation ");
             return 0;
         }
-
         if (marketRows.isEmpty()) {
             log.warn("No market history found in date range {} to {}", LocalDate.now().minusYears(2), LocalDate.now());
             return 0;
@@ -209,4 +203,3 @@ public class PatternSyncScheduler {
         return entity;
     }
 }
-

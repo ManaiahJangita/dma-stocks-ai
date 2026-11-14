@@ -54,4 +54,4 @@ class StockAIServiceTest {
         }
         return result;
     }
-+}
+}

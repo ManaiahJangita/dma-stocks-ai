@@ -2,6 +2,7 @@ package com.stockai.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
+
 import java.util.UUID;
 
 @Data

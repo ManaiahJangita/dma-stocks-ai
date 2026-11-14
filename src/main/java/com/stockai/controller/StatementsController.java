@@ -1,15 +1,19 @@
 package com.stockai.controller;
 
+import com.stockai.dto.MonthlyStatementSummaryDto;
 import com.stockai.dto.StatementDto;
 import com.stockai.dto.StatementFiltersDto;
 import com.stockai.service.interf.StatementsService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/statements")
@@ -22,6 +26,16 @@ public class StatementsController {
     public ResponseEntity<?> createStatement(@RequestBody StatementDto statement) {
         try {
             StatementDto created = statementsService.createStatement(statement);
+            return ResponseEntity.status(201).body(created);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(exception.getMessage());
+        }
+    }
+
+    @PostMapping("/sale-reference")
+    public ResponseEntity<?> createSaleReferenceStatement(@RequestBody StatementDto statement) {
+        try {
+            StatementDto created = statementsService.createSaleReferenceStatement(statement);
             return ResponseEntity.status(201).body(created);
         } catch (IllegalArgumentException exception) {
             return ResponseEntity.badRequest().body(exception.getMessage());
@@ -47,5 +61,18 @@ public class StatementsController {
             return ResponseEntity.notFound().build();
         log.info("Fetched {} statements in total", response.size());
         return new ResponseEntity<>(response, HttpStatus.OK);
+    }
+
+    @GetMapping("/monthly-summary")
+    public ResponseEntity<?> fetchMonthlySummary(
+            @RequestParam UUID userId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
+        try {
+            MonthlyStatementSummaryDto response = statementsService.fetchMonthlySummary(userId, fromDate, toDate);
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().body(exception.getMessage());
+        }
     }
 }

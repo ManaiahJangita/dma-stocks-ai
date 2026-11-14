@@ -6,7 +6,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
@@ -20,7 +23,7 @@ public class ReportsController {
     @PostMapping("/reports-data")
     public ResponseEntity<List<ReportsDto>> fetchReportsBasedOnFilters(@RequestBody ReportsDto filters) {
         List<ReportsDto> response = reportsService.fetchReportsBasedOnFilters(filters);
-        if(response.isEmpty()) {
+        if (response.isEmpty()) {
             return ResponseEntity.noContent().build();
         }
         return new ResponseEntity<>(response, HttpStatus.OK);

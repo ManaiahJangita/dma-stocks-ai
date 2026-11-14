@@ -7,14 +7,14 @@ import java.util.List;
 
 public interface DailyStockRepository {
 
-    public void saveAllDailyStockData(List<DailyStockModel> dailyStockModels);
+     void saveAllDailyStockData(List<DailyStockModel> dailyStockModels);
 
-    public void saveAllHistoricalData(List<HistoricalDataEntity> dailyStockHistoryModels);
+     void saveAllHistoricalData(List<HistoricalDataEntity> dailyStockHistoryModels);
 
-    public int countAll();
+     int countAll();
 
-    public void truncateDailyStockData();
+     void truncateDailyStockData();
 
-    public List<DailyStockModel> fullData();
+     List<DailyStockModel> fullData();
 
 }
