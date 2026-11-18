@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/schedular/api/v1/markets")
+@RequestMapping("/api/v1/markets")
 @Slf4j
 public class MarketsController {
     @Autowired

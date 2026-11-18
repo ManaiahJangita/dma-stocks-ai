@@ -21,7 +21,7 @@ public class PredictionSyncSchedular extends BasicJob {
     public void executeJob() {
         try {
             log.info("Starting prediction sync job");
-            LocalDate startDate = LocalDate.now().minusYears(4);
+            LocalDate startDate = LocalDate.now().minusYears(3);
             LocalDate endDate = LocalDate.now();
             predictionService.synchronizePredictions(startDate.toString(), endDate.toString());
             log.info("Completed prediction sync job");

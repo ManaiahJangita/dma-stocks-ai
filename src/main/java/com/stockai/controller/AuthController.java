@@ -5,6 +5,11 @@ import com.stockai.dto.PasswordResetDto;
 import com.stockai.dto.RegistrationFormDto;
 import com.stockai.dto.UserDetailsDto;
 import com.stockai.dto.UserDto;
+import com.stockai.dto.GoogleLoginRequest;
+import com.stockai.entity.User;
+import com.stockai.entity.UserRoles;
+import com.stockai.enums.Roles;
+import com.stockai.repository.UserRepository;
 import com.stockai.service.interf.RegistrationService;
 import com.stockai.service.interf.UserDetailsService;
 import com.stockai.utils.AuthUtils;
@@ -19,10 +24,19 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mail.MailException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -32,6 +46,12 @@ public class AuthController {
 
     @Autowired
     private UserDetailsService loginService;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @Autowired
     private JwtTokenUtil jwtTokenUtil;
@@ -138,5 +158,93 @@ public class AuthController {
     @PostMapping("/reset-password")
     public ResponseEntity<Boolean> resetPassword(@RequestBody PasswordResetDto request) {
         return ResponseEntity.ok(loginService.resetPassword(request));
+    }
+
+    @PostMapping("/google-login")
+    public ResponseEntity<?> googleLogin(@RequestBody GoogleLoginRequest request, HttpServletRequest servletRequest, HttpServletResponse servletResponse) {
+        try {
+            String idToken = request != null ? (StringUtils.hasText(request.getIdToken()) ? request.getIdToken() : request.getToken()) : null;
+            if (!StringUtils.hasText(idToken)) {
+                return ResponseEntity.badRequest().body("Google token is required");
+            }
+
+            Map<String, Object> payload = verifyGoogleToken(idToken);
+            String email = String.valueOf(payload.get("email"));
+            String firstName = String.valueOf(payload.getOrDefault("given_name", "Google"));
+            String lastName = String.valueOf(payload.getOrDefault("family_name", "User"));
+            String picture = payload.get("picture") != null ? String.valueOf(payload.get("picture")) : null;
+
+            if (!StringUtils.hasText(email)) {
+                return ResponseEntity.badRequest().body("Google token did not contain an email");
+            }
+
+            String normalizedEmail = email.trim().toLowerCase();
+            User user = userRepository.findByEmailIgnoreCase(normalizedEmail).orElse(null);
+            if (user == null) {
+                user = new User();
+                user.setFirstName(StringUtils.hasText(firstName) ? firstName : "Google");
+                user.setLastName(StringUtils.hasText(lastName) ? lastName : "User");
+                user.setEmail(normalizedEmail);
+                user.setPassword(passwordEncoder.encode("Google@" + UUID.randomUUID()));
+                user.setMobileNumber(1000000000L + System.currentTimeMillis() % 9000000000L);
+                user.setAddress("Google OAuth");
+                user.setImage(picture);
+                user.setStatus("Active");
+                user.setCreatedDate(LocalDateTime.now());
+                user.setUpdatedDate(LocalDate.now());
+
+                UserRoles role = new UserRoles();
+                role.setRoleName(Roles.USER.getName());
+                role.setUser(user);
+                user.setRoles(List.of(role));
+                userRepository.save(user);
+            } else {
+                if (StringUtils.hasText(picture) && (user.getImage() == null || user.getImage().isBlank())) {
+                    user.setImage(picture);
+                }
+                if (user.getRoles() == null || user.getRoles().isEmpty()) {
+                    UserRoles role = new UserRoles();
+                    role.setRoleName(Roles.USER.getName());
+                    role.setUser(user);
+                    user.setRoles(List.of(role));
+                }
+                user.setUpdatedDate(LocalDate.now());
+                userRepository.save(user);
+            }
+
+            List<String> roles = user.getRoles() == null ? List.of() : user.getRoles().stream().map(UserRoles::getRoleName).distinct().toList();
+            if (roles.isEmpty()) {
+                roles = List.of(Roles.USER.getName());
+            }
+            String token = jwtTokenUtil.generateToken(user.getEmail(), user.getId().toString(), roles);
+
+            UserDetailsDto response = new UserDetailsDto();
+            response.setEmail(user.getEmail());
+            response.setUserId(user.getId().toString());
+            response.setFirstName(user.getFirstName());
+            response.setLastName(user.getLastName());
+            response.setRoles(roles);
+            response.setImage(user.getImage());
+            response.setAddress(user.getAddress());
+            response.setPhoneNumber(String.valueOf(user.getMobileNumber()));
+            response.setToken(token);
+
+            CookieUtils.addCookie(ApiConstants.USER_ID_COOKIE_NAME, token, jwtTokenUtil.getCookieMaxAgeSeconds(), servletResponse, servletRequest.isSecure());
+            return new ResponseEntity<>(response, HttpStatus.OK);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Google authentication failed");
+        }
+    }
+
+    private Map<String, Object> verifyGoogleToken(String idToken) {
+        String url = "https://oauth2.googleapis.com/tokeninfo?id_token=" + idToken;
+        RestTemplate restTemplate = new RestTemplate();
+        try {
+            return restTemplate.getForObject(url, Map.class);
+        } catch (HttpClientErrorException e) {
+            throw new IllegalArgumentException("Invalid Google token");
+        }
     }
 }

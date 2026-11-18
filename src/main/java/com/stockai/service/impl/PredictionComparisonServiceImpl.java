@@ -61,8 +61,9 @@ public class PredictionComparisonServiceImpl implements PredictionComparisonServ
                 return;
             }
 
-            if (latestActualDate.isBefore(latestPredictionDate)) {
-                log.info("[PredictionComparison] Latest actual date {} is before latest prediction date {}. Skipping comparison.", latestActualDate, latestPredictionDate);
+            if (latestActualDate.isBefore(latestPredictionDate)
+                    || latestActualDate.equals(latestPredictionDate)) {
+                log.info("[PredictionComparison] Latest actual date {} is not after latest prediction date {}. Skipping comparison until next-session actual data exists.", latestActualDate, latestPredictionDate);
                 return;
             }
 
@@ -70,9 +71,20 @@ public class PredictionComparisonServiceImpl implements PredictionComparisonServ
             log.info("[PredictionComparison] Using latest prediction date {} and latest actual date {} for comparison", effectivePredictionDate, latestActualDate);
         }
 
-        LocalDate actualDate = predictionDate == null ? historicalDataRepository.findLatestCreatedDate() : predictionDate.plusDays(1);
+        LocalDate actualDate = predictionDate == null
+                ? historicalDataRepository.findLatestCreatedDate()
+                : null;
+        if (predictionDate != null) {
+            for (int offset = 1; offset <= 7; offset++) {
+                LocalDate candidate = predictionDate.plusDays(offset);
+                if (historicalDataRepository.findAll(candidate, candidate).stream().findAny().isPresent()) {
+                    actualDate = candidate;
+                    break;
+                }
+            }
+        }
         if (actualDate == null) {
-            log.info("[PredictionComparison] No actual market data available for comparison");
+            log.info("[PredictionComparison] No subsequent actual market data available for comparison");
             return;
         }
 
@@ -91,15 +103,16 @@ public class PredictionComparisonServiceImpl implements PredictionComparisonServ
         Map<String, HistoricalDataEntity> actualBySymbol = new HashMap<>();
         List<HistoricalDataEntity> actualRows = historicalDataRepository.findAll(actualDate, actualDate);
         log.info("[PredictionComparison] Loaded {} predicted rows and {} actual rows for comparison window", predictedRows.size(), actualRows == null ? 0 : actualRows.size());
-        for (HistoricalDataEntity row : actualRows) {
-            if (row != null && row.getSymbol() != null) {
-                actualBySymbol.put(row.getSymbol(), row);
+        if (actualRows != null) {
+            for (HistoricalDataEntity row : actualRows) {
+                if (row != null && row.getSymbol() != null) {
+                    actualBySymbol.put(row.getSymbol(), row);
+                }
             }
         }
         log.info("[PredictionComparison] Actual data indexed by symbol. indexSize={}", actualBySymbol.size());
 
         List<PredictionComparisonEntity> comparisons = new ArrayList<>();
-        UUID runId = UUID.randomUUID();
 
         for (PredictionEntity predicted : predictedRows) {
             HistoricalDataEntity actual = actualBySymbol.get(predicted.getSymbol());
@@ -110,7 +123,6 @@ public class PredictionComparisonServiceImpl implements PredictionComparisonServ
 
             PredictionComparisonEntity comparison = new PredictionComparisonEntity();
             comparison.setSymbol(predicted.getSymbol());
-            comparison.setPredictionRunId(runId);
             comparison.setPredictionRunId(predicted.getRunId());
             comparison.setPredictionDate(predicted.getPredictionDate());
             comparison.setActualDate(actual.getCreatedDate());
@@ -123,7 +135,7 @@ public class PredictionComparisonServiceImpl implements PredictionComparisonServ
             comparison.setActualHigh(actual.getHigh());
             comparison.setActualLow(actual.getLow());
             comparison.setActualClose(actual.getClose());
-            comparison.setActualDirection(actual.getClose() >= actual.getOpen() ? "UP" : "DOWN");
+            comparison.setActualDirection(actual.getClose() >= predicted.getClose() ? "UP" : "DOWN");
 
             comparison.setPredictedProbabilityUp(predicted.getUpProbabilityPercent() == null ? 0.0 : predicted.getUpProbabilityPercent() / 100.0);
             comparison.setPredictedProbabilityDown(predicted.getDownProbabilityPercent() == null ? 0.0 : predicted.getDownProbabilityPercent() / 100.0);
@@ -137,11 +149,16 @@ public class PredictionComparisonServiceImpl implements PredictionComparisonServ
             comparison.setHighDiff(actual.getHigh() - predicted.getPredictedHigh());
             comparison.setLowDiff(actual.getLow() - predicted.getPredictedLow());
 
-            comparison.setCloseDiffPercent((actual.getClose() == 0 ? 0.0 : ((actual.getClose() - predicted.getPredictionClose()) / actual.getClose()) * 100.0));
-            comparison.setHighDiffPercent((actual.getHigh() == 0 ? 0.0 : ((actual.getHigh() - predicted.getPredictedHigh()) / actual.getHigh()) * 100.0));
-            comparison.setLowDiffPercent((actual.getLow() == 0 ? 0.0 : ((actual.getLow() - predicted.getPredictedLow()) / actual.getLow()) * 100.0));
+            comparison.setCloseDiffPercent((predicted.getPredictionClose() == null || predicted.getPredictionClose() == 0.0
+                    ? 0.0 : ((actual.getClose() - predicted.getPredictionClose()) / predicted.getPredictionClose()) * 100.0));
+            comparison.setHighDiffPercent((predicted.getPredictedHigh() == null || predicted.getPredictedHigh() == 0.0
+                    ? 0.0 : ((actual.getHigh() - predicted.getPredictedHigh()) / predicted.getPredictedHigh()) * 100.0));
+            comparison.setLowDiffPercent((predicted.getPredictedLow() == null || predicted.getPredictedLow() == 0.0
+                    ? 0.0 : ((actual.getLow() - predicted.getPredictedLow()) / predicted.getPredictedLow()) * 100.0));
 
-            boolean directionMatched = predicted.getPredictionDirection() != null && predicted.getPredictionDirection().equalsIgnoreCase(comparison.getActualDirection());
+            boolean directionMatched = predicted.getPredictionDirection() != null
+                    && predicted.getPredictionDirection().equalsIgnoreCase(comparison.getActualDirection());
+
             comparison.setDirectionMatched(directionMatched);
             comparison.setActualVsPredictedDirectionMatch(directionMatched);
             comparison.setStatus(directionMatched ? "MATCHED" : "MISSED");
@@ -233,7 +250,7 @@ public class PredictionComparisonServiceImpl implements PredictionComparisonServ
                 .filter(item -> Boolean.TRUE.equals(item.getDirectionMatched()))
                 .count();
 
-        double accuracyPercent = comparisons.isEmpty() ? 0.0 : ((matchedCount * 100.0) / comparisons.size());
+        double accuracyPercent = (matchedCount * 100.0) / comparisons.size();
 
         log.info("Prediction comparison accuracy for {} = {}% (matched {} of {})", predictionDate, accuracyPercent, matchedCount, comparisons.size());
 

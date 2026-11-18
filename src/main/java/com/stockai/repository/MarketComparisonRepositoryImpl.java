@@ -81,6 +81,9 @@ public class MarketComparisonRepositoryImpl implements MarketComparisonRepositor
             history.setActualVsPredictedDirectionMatch(entity.getActualVsPredictedDirectionMatch());
             history.setModelValidationAccuracyPercent(entity.getModelValidationAccuracyPercent());
             history.setRetrainingFeedbackScore(entity.getRetrainingFeedbackScore());
+            history.setTargetReached(entity.getTargetReached());
+            history.setSellRecommended(entity.getSellRecommended());
+            history.setTargetStatus(entity.getTargetStatus());
             entityManager.persist(history);
         }
         entityManager.flush();

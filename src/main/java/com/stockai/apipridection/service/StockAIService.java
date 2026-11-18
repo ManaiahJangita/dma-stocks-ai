@@ -88,56 +88,109 @@ public class StockAIService {
         }
 
         Path csvFile = Files.createTempFile("stock_prediction_input", ".csv");
-        Files.writeString(csvFile, buildCsv(history), StandardCharsets.UTF_8);
-
-        if (!Files.exists(modelPath)) {
-            runPython(script, List.of("train", "--input", csvFile.toString(), "--model-name", modelType.name().toLowerCase(Locale.ROOT)));
-        }
-
-        String jsonOutput = runPython(script, List.of(
-                "predict",
-                "--input", csvFile.toString(),
-                "--model-path", modelPath.toString(),
-                "--model-name", modelType.name().toLowerCase(Locale.ROOT)
-        ));
-
-        if (jsonOutput == null || jsonOutput.isBlank()) {
-            throw new IOException("Python model returned empty output");
-        }
-
-        String sanitizedJsonOutput = extractJsonPayload(jsonOutput);
-
         try {
-            var prediction = OBJECT_MAPPER.readTree(sanitizedJsonOutput);
-            double predictedHigh = prediction.has("predicted_high") && !prediction.get("predicted_high").isNull()
-                    ? prediction.get("predicted_high").asDouble() : history.get(history.size() - 1).getHigh();
-            double predictedHighChangePct = prediction.has("predicted_high_change_pct")
-                    ? prediction.get("predicted_high_change_pct").asDouble() : 0.0;
-            double currentClose = prediction.has("current_close")
-                    ? prediction.get("current_close").asDouble() : history.get(history.size() - 1).getClose();
+            Files.writeString(csvFile, buildCsv(history), StandardCharsets.UTF_8);
 
-            String direction = predictedHighChangePct > 0.5 ? "Up" : "Down";
-            double confidence = Math.min(100.0, Math.abs(predictedHighChangePct) + 50.0);
-            double predictedClose = currentClose * (1.0 + (predictedHighChangePct / 100.0));
-            double predictedLow = Math.max(0.01, currentClose * (1.0 + ((predictedHighChangePct - 1.0) / 100.0)));
+            if (!Files.exists(modelPath)) {
+                runPython(script, List.of("train", "--input", csvFile.toString(), "--model-name", modelType.name().toLowerCase(Locale.ROOT)));
+            }
 
-            return new AnalysisResult(
-                    predictedHigh,
-                    predictedLow,
-                    predictedClose,
-                    predictedHighChangePct,
-                    percentage(predictedLow, currentClose),
-                    percentage(predictedClose, currentClose),
-                    direction,
-                    confidence,
-                    predictedHighChangePct > 0.5 ? confidence : (100.0 - confidence),
-                    predictedHighChangePct > 0.5 ? (100.0 - confidence) : confidence,
-                    0,
-                    0
-            );
-        } catch (Exception parseEx) {
-            log.warn("Failed to parse Python prediction JSON: {}", sanitizedJsonOutput, parseEx);
-            throw parseEx;
+            String jsonOutput = runPython(script, List.of(
+                    "predict",
+                    "--input", csvFile.toString(),
+                    "--model-path", modelPath.toString(),
+                    "--model-name", modelType.name().toLowerCase(Locale.ROOT)
+            ));
+
+            if (jsonOutput == null || jsonOutput.isBlank()) {
+                throw new IOException("Python model returned empty output");
+            }
+
+            String sanitizedJsonOutput = extractJsonPayload(jsonOutput);
+
+            try {
+                var prediction = OBJECT_MAPPER.readTree(sanitizedJsonOutput);
+                HistoricalDataEntity latest = history.get(history.size() - 1);
+
+                double currentClose = prediction.has("current_close")
+                        ? prediction.get("current_close").asDouble(latest.getClose()) : latest.getClose();
+                double predictedClose = prediction.has("predicted_close")
+                        ? prediction.get("predicted_close").asDouble(currentClose) : currentClose;
+                double predictedHigh = prediction.has("predicted_high")
+                        ? prediction.get("predicted_high").asDouble(latest.getHigh()) : latest.getHigh();
+                double predictedLow = prediction.has("predicted_low")
+                        ? prediction.get("predicted_low").asDouble(latest.getLow()) : latest.getLow();
+
+                double predictedCloseChangePct = prediction.has("predicted_close_change_pct")
+                        ? prediction.get("predicted_close_change_pct").asDouble(percentage(predictedClose, currentClose))
+                        : percentage(predictedClose, currentClose);
+                double predictedHighChangePct = prediction.has("predicted_high_change_pct")
+                        ? prediction.get("predicted_high_change_pct").asDouble(percentage(predictedHigh, currentClose))
+                        : percentage(predictedHigh, currentClose);
+                double predictedLowChangePct = prediction.has("predicted_low_change_pct")
+                        ? prediction.get("predicted_low_change_pct").asDouble(percentage(predictedLow, currentClose))
+                        : percentage(predictedLow, currentClose);
+
+                String direction = prediction.has("direction")
+                        ? prediction.get("direction").asText("Down") : (predictedCloseChangePct >= 0 ? "Up" : "Down");
+
+                String signal = prediction.has("signal") ? prediction.get("signal").asText("HOLD") : "HOLD";
+                if ("HOLD".equalsIgnoreCase(signal)) {
+                    direction = "Hold";
+                }
+
+                double upProbabilityPercent = prediction.has("probability_up")
+                        ? prediction.get("probability_up").asDouble(0.5) * 100.0
+                        : 50.0;
+                double downProbabilityPercent = prediction.has("probability_down")
+                        ? prediction.get("probability_down").asDouble(1.0 - upProbabilityPercent / 100.0) * 100.0
+                        : 100.0 - upProbabilityPercent;
+
+                double confidencePercent = prediction.has("confidence_percent")
+                        ? prediction.get("confidence_percent").asDouble(Math.max(upProbabilityPercent, downProbabilityPercent))
+                        : Math.max(upProbabilityPercent, downProbabilityPercent);
+
+                int validationSamples = 0;
+                int correctValidationPredictions = 0;
+                if (prediction.has("validation_metrics") && prediction.get("validation_metrics").isObject()) {
+                    var validation = prediction.get("validation_metrics");
+                    validationSamples = validation.has("validation_samples")
+                            ? validation.get("validation_samples").asInt(0)
+                            : (validation.has("folds") ? validation.get("folds").asInt(0) : 0);
+                    correctValidationPredictions = validation.has("correct_validation_predictions")
+                            ? validation.get("correct_validation_predictions").asInt(0)
+                            : 0;
+                }
+
+                log.info("[StockAI] Python prediction used: symbol={} signal={} direction={} predictedClose={} currentClose={} confidence={} upProbability={} downProbability={}",
+                        prediction.has("symbol") ? prediction.get("symbol").asText("") : latest.getSymbol(),
+                        signal, direction, predictedClose, currentClose, confidencePercent,
+                        upProbabilityPercent, downProbabilityPercent);
+
+                return new AnalysisResult(
+                        predictedHigh,
+                        predictedLow,
+                        predictedClose,
+                        predictedHighChangePct,
+                        predictedLowChangePct,
+                        predictedCloseChangePct,
+                        direction,
+                        confidencePercent,
+                        upProbabilityPercent,
+                        downProbabilityPercent,
+                        validationSamples,
+                        correctValidationPredictions
+                );
+            } catch (Exception parseEx) {
+                log.warn("Failed to parse Python prediction JSON: {}", sanitizedJsonOutput, parseEx);
+                throw parseEx;
+            }
+        } finally {
+            try {
+                Files.deleteIfExists(csvFile);
+            } catch (IOException cleanupException) {
+                log.warn("Failed to delete temporary prediction CSV: {}", csvFile, cleanupException);
+            }
         }
     }
 

@@ -178,6 +178,8 @@ public class MarketsServiceImpl implements MarketsService {
     }
 
     private void enrichMarketAnalytics(List<MarketEntity> marketRows) {
+        Map<String, Double> activeWeights = loadActiveWeightsFromDb();
+
         // Group all records by symbol
         Map<String, List<MarketEntity>> bySymbol = new HashMap<>();
         for (MarketEntity row : marketRows) {
@@ -281,17 +283,17 @@ public class MarketsServiceImpl implements MarketsService {
                     + (latest.getReturn10d() != null ? latest.getReturn10d() : 0.0) * 0.20
                     + (latest.getReturn30d() != null ? latest.getReturn30d() : 0.0) * 0.10;
 
-            double weightedMove = (prevChange * MARKET_SIGNAL_WEIGHTS.get("prevChange"))
-                    + (momentumBias * MARKET_SIGNAL_WEIGHTS.get("momentum"))
-                    + (trendBias * MARKET_SIGNAL_WEIGHTS.get("trendBias"))
-                    + (rsiBias * MARKET_SIGNAL_WEIGHTS.get("rsiBias"))
-                    + (breakoutBias * MARKET_SIGNAL_WEIGHTS.get("breakoutBias"))
-                    + (volumeBias * MARKET_SIGNAL_WEIGHTS.get("volumeBias"));
+            double weightedMove = (prevChange * activeWeights.getOrDefault("prevChange", 0.35))
+                    + (momentumBias * activeWeights.getOrDefault("momentum", 0.25))
+                    + (trendBias * activeWeights.getOrDefault("trendBias", 0.18))
+                    + (rsiBias * activeWeights.getOrDefault("rsiBias", 0.12))
+                    + (breakoutBias * activeWeights.getOrDefault("breakoutBias", 0.06))
+                    + (volumeBias * activeWeights.getOrDefault("volumeBias", 0.04));
 
             double nextMove = Math.max(-12.0, Math.min(12.0, weightedMove));
             double rangeFactor = Math.max(0.35, Math.abs(nextMove) * 0.70);
-            double nextDayHigh = close * (1 + (Math.max(0.0, nextMove) / 100.0));
-            double nextDayLow = close * (1 - (Math.max(0.0, -nextMove) / 100.0));
+            double nextDayHigh = close * (1.0 + (rangeFactor + Math.max(0.0, nextMove)) / 100.0);
+            double nextDayLow = close * (1.0 + (-rangeFactor + Math.min(0.0, nextMove)) / 100.0);
             double nextDayLowReturnPct = ((nextDayLow - close) / close) * 100.0;
 
             latest.setNextDayHigh(nextDayHigh);

@@ -70,8 +70,22 @@ public class PredictionServiceImpl implements PredictionService {
         }
 
         int totalUpserted = 0;
-        log.info("[PredictionService] Loading three-year history for prediction generation.");
-        Map<String, List<HistoricalDataEntity>> historyBySymbol = historicalDataService.getThreeYearHistoryBySymbol();
+        LocalDate syncStartDate = LocalDate.now().minusYears(3);
+        LocalDate syncEndDate = LocalDate.now();
+        log.info("[PredictionService] Loading historical data for prediction range {} to {}", startDate, endDate);
+        Map<String, List<HistoricalDataEntity>> historyBySymbol;
+        if (startDate != null && endDate != null) {
+            try {
+                syncStartDate = LocalDate.parse(startDate);
+                syncEndDate = LocalDate.parse(endDate);
+                historyBySymbol = historicalDataService.getHistoryBySymbol(syncStartDate, syncEndDate);
+            } catch (Exception e) {
+                log.warn("[PredictionService] Invalid prediction date range startDate={} endDate={}; using configured three-year history", startDate, endDate);
+                historyBySymbol = historicalDataService.getThreeYearHistoryBySymbol();
+            }
+        } else {
+            historyBySymbol = historicalDataService.getThreeYearHistoryBySymbol();
+        }
         log.info("[PredictionService] Loaded {} symbol histories from historical database", historyBySymbol == null ? 0 : historyBySymbol.size());
 
         List<PredictionEntity> predictions = new java.util.ArrayList<>();
@@ -118,7 +132,7 @@ public class PredictionServiceImpl implements PredictionService {
                 entity.setPer(latest.getPer());
                 entity.setPtsC(latest.getPtsC());
                 entity.setCreatedDate(LocalDate.now());
-                entity.setPredictionDate(LocalDate.now());
+                entity.setPredictionDate(latest.getCreatedDate());
                 entity.setPredictionClose(analysis.getPredictedClose());
                 entity.setPredictionDirection(analysis.getDirection());
                 entity.setPredictionClosePercentage(analysis.getPredictedClosePercentage());
@@ -153,8 +167,8 @@ public class PredictionServiceImpl implements PredictionService {
 
         for (PredictionEntity prediction : predictions) {
             prediction.setRunId(runId);
-            prediction.setRunStartDate(LocalDate.now());
-            prediction.setRunEndDate(LocalDate.now());
+            prediction.setRunStartDate(syncStartDate);
+            prediction.setRunEndDate(syncEndDate);
             prediction.setRunCreatedAt(runCreatedAt);
             prediction.setPredictionsSaved(predictionsSaved);
             prediction.setSkippedSymbols(skippedSymbols);

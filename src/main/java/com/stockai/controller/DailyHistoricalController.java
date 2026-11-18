@@ -45,7 +45,7 @@ public class DailyHistoricalController {
         try {
             angelOneService.generateSession();
             marketsService.executeJob();
-            LocalDate startDate = LocalDate.now().minusYears(2);
+            LocalDate startDate = LocalDate.now().minusYears(3);
             LocalDate endDate = LocalDate.now();
             predictionService.synchronizePredictions(String.valueOf(startDate), String.valueOf(endDate));
             dashboardService.processDashboardData();

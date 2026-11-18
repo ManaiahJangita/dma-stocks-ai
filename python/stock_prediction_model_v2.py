@@ -6,7 +6,8 @@ from typing import Any, Dict, List, Optional
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
+import lightgbm as lgb
+import xgboost as xgb
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
@@ -19,6 +20,9 @@ class StockPredictionModel:
     def __init__(self, model_name: str = "xgboost"):
         self.model_name = (model_name or "xgboost").lower()
         self.model = None
+        self.close_model = None
+        self.high_model = None
+        self.low_model = None
         self.scaler = StandardScaler()
         self.feature_columns: List[str] = []
         self.validation_summary: Dict[str, Any] = {}
@@ -47,7 +51,7 @@ class StockPredictionModel:
             return float(values.iloc[-1]) if not values.empty else 0.0
         return float(values.tail(period).mean())
 
-    def build_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def build_features(self, df: pd.DataFrame, include_latest: bool = False) -> pd.DataFrame:
         if df.empty:
             return pd.DataFrame()
 
@@ -64,13 +68,25 @@ class StockPredictionModel:
         rows: List[Dict[str, Any]] = []
         for symbol, symbol_df in df.groupby("symbol", sort=False):
             symbol_df = symbol_df.sort_values("created_date").reset_index(drop=True)
-            for i in range(1, len(symbol_df) - 1):
+            upper_index = len(symbol_df) if include_latest else len(symbol_df) - 1
+            for i in range(1, upper_index):
                 current = symbol_df.iloc[i]
+
+                if include_latest:
+                    next_row = current
+                    next_close = self._safe_float(current.get("close"), 0.0)
+                    next_high = self._safe_float(current.get("high"), next_close)
+                    next_low = self._safe_float(current.get("low"), next_close)
+                else:
+                    next_row = symbol_df.iloc[i + 1]
+                    next_close = self._safe_float(next_row.get("close"), self._safe_float(current.get("close"), 0.0))
+                    next_high = self._safe_float(next_row.get("high"), next_close)
+                    next_low = self._safe_float(next_row.get("low"), next_close)
+
                 prev = symbol_df.iloc[i - 1]
                 prev5 = symbol_df.iloc[max(0, i - 5)]
                 prev10 = symbol_df.iloc[max(0, i - 10)]
                 prev20 = symbol_df.iloc[max(0, i - 20)]
-                next_row = symbol_df.iloc[i + 1]
 
                 prev_close = self._safe_float(prev.get("close"), 0.0)
                 close = self._safe_float(current.get("close"), 0.0)
@@ -78,6 +94,9 @@ class StockPredictionModel:
                     continue
 
                 next_close = self._safe_float(next_row.get("close"), close)
+                next_high = self._safe_float(next_row.get("high"), next_close)
+                next_low = self._safe_float(next_row.get("low"), next_close)
+
                 momentum_1 = ((close / prev_close) - 1.0) * 100.0
                 momentum_5 = ((close / self._safe_float(prev5.get("close"), prev_close)) - 1.0) * 100.0 if self._safe_float(prev5.get("close"), 0.0) > 0 else 0.0
                 momentum_10 = ((close / self._safe_float(prev10.get("close"), prev_close)) - 1.0) * 100.0 if self._safe_float(prev10.get("close"), 0.0) > 0 else 0.0
@@ -116,7 +135,10 @@ class StockPredictionModel:
                         "label": int(label),
                         "next_return_pct": next_return_pct,
                         "current_close": close,
+                        "current_high": self._safe_float(current.get("high"), close),
                         "next_close": next_close,
+                        "next_high": next_high,
+                        "next_low": next_low,
                     }
                 )
 
@@ -141,32 +163,34 @@ class StockPredictionModel:
 
     def _make_classifier(self):
         if self.model_name == "lightgbm":
-            try:
-                import lightgbm as lgb
+            return lgb.LGBMClassifier(
+                objective="binary",
+                n_estimators=300,
+                learning_rate=0.05,
+                max_depth=5,
+                num_leaves=25,
+                random_state=42,
+                verbosity=-1,
+                n_jobs=-1,
+                subsample=0.9,
+                colsample_bytree=0.8,
+            )
 
-                return lgb.LGBMClassifier(
-                    objective="binary",
-                    n_estimators=300,
-                    learning_rate=0.05,
-                    max_depth=5,
-                    num_leaves=25,
-                    random_state=42,
-                    subsample=0.9,
-                    colsample_bytree=0.8,
-                )
-            except Exception:
-                pass
+        if self.model_name == "xgboost":
+            return xgb.XGBClassifier(
+                objective="binary:logistic",
+                n_estimators=300,
+                learning_rate=0.05,
+                max_depth=5,
+                min_child_weight=2,
+                random_state=42,
+                n_jobs=-1,
+                subsample=0.9,
+                colsample_bytree=0.8,
+                eval_metric="logloss",
+            )
 
-        if self.model_name == "random_forest":
-            return RandomForestClassifier(n_estimators=500, max_depth=8, random_state=42, min_samples_leaf=2)
-
-        return HistGradientBoostingClassifier(
-            loss="log_loss",
-            learning_rate=0.05,
-            max_depth=8,
-            max_iter=300,
-            random_state=42,
-        )
+        raise ValueError(f"Unsupported model name: {self.model_name}. Use xgboost or lightgbm.")
 
     def _sanitize_feature_frame(self, features_df: pd.DataFrame) -> pd.DataFrame:
         if features_df.empty:
@@ -196,9 +220,13 @@ class StockPredictionModel:
 
         if len(X) < 30:
             raise ValueError("Need at least 30 valid rows to train")
+        if y.nunique() < 2:
+            raise ValueError("Training data must contain both UP and DOWN direction labels")
 
         tscv = TimeSeriesSplit(n_splits=min(5, max(2, len(X) // 30)))
         fold_scores: List[Dict[str, float]] = []
+        validation_samples = 0
+        validation_correct = 0
         for train_idx, val_idx in tscv.split(X):
             model = self._make_classifier()
             X_train = X.iloc[train_idx]
@@ -210,6 +238,9 @@ class StockPredictionModel:
             model.fit(X_scaled_train, y_train)
             X_scaled_val = self.scaler.transform(X_val)
             val_pred = model.predict(X_scaled_val)
+
+            validation_samples += len(val_idx)
+            validation_correct += int(np.sum(val_pred == y_val.to_numpy()))
 
             fold_scores.append(
                 {
@@ -227,11 +258,49 @@ class StockPredictionModel:
                 "recall_percent": round(float(np.mean([s["recall"] for s in fold_scores])) * 100.0, 2),
                 "f1_percent": round(float(np.mean([s["f1"] for s in fold_scores])) * 100.0, 2),
                 "folds": len(fold_scores),
+                "validation_samples": validation_samples,
+                "correct_validation_predictions": validation_correct,
             }
 
         final_model = self._make_classifier()
         final_model.fit(self.scaler.fit_transform(X), y)
         self.model = final_model
+
+        close_targets = features_df["next_return_pct"].astype(float)
+        high_targets = ((features_df["next_high"] - features_df["current_close"])
+                        / features_df["current_close"] * 100.0)
+        low_targets = ((features_df["next_low"] - features_df["current_close"])
+                       / features_df["current_close"] * 100.0)
+
+        self.close_model = xgb.XGBRegressor(
+            objective="reg:squarederror",
+            n_estimators=300,
+            learning_rate=0.05,
+            max_depth=5,
+            random_state=42,
+            n_jobs=-1,
+        )
+        self.high_model = xgb.XGBRegressor(
+            objective="reg:squarederror",
+            n_estimators=300,
+            learning_rate=0.05,
+            max_depth=5,
+            random_state=42,
+            n_jobs=-1,
+        )
+        self.low_model = xgb.XGBRegressor(
+            objective="reg:squarederror",
+            n_estimators=300,
+            learning_rate=0.05,
+            max_depth=5,
+            random_state=42,
+            n_jobs=-1,
+        )
+
+        X_scaled = self.scaler.fit_transform(X)
+        self.close_model.fit(X_scaled, close_targets)
+        self.high_model.fit(X_scaled, high_targets)
+        self.low_model.fit(X_scaled, low_targets)
 
         return self
 
@@ -242,7 +311,7 @@ class StockPredictionModel:
         if self.model is None:
             raise ValueError("Model is not trained")
 
-        features_df = self.build_features(df)
+        features_df = self.build_features(df, include_latest=True)
         if features_df.empty:
             return {"symbol": None, "direction": "Hold", "probability_up": 0.0, "predicted_high": None, "predicted_high_change_pct": 0.0}
 
@@ -252,19 +321,32 @@ class StockPredictionModel:
         probabilities = self.model.predict_proba(X_scaled)[:, 1]
 
         latest = features_df.iloc[-1]
-        current_close = self._safe_float(df.iloc[-1].get("close"), 0.0)
-        current_high = self._safe_float(df.iloc[-1].get("high"), 0.0)
+        current_close = float(latest["current_close"])
+        current_high = float(latest["current_high"])
 
         probability_up = float(probabilities[-1])
         probability_down = 1.0 - probability_up
         direction = "Up" if probability_up >= 0.5 else "Down"
 
-        predicted_change_pct = (probability_up - 0.5) * 10.0
-        predicted_change_pct = float(np.clip(predicted_change_pct, -8.0, 8.0))
+        if self.close_model is not None:
+            latest_scaled = X_scaled[-1:].copy()
+            predicted_change_pct = float(np.clip(self.close_model.predict(latest_scaled)[0], -8.0, 8.0))
+        else:
+            predicted_change_pct = (probability_up - 0.5) * 10.0
+            predicted_change_pct = float(np.clip(predicted_change_pct, -8.0, 8.0))
+
         predicted_close = current_close * (1.0 + (predicted_change_pct / 100.0))
-        predicted_high = current_high * (1.0 + max(0.0, predicted_change_pct / 100.0) + 0.006)
-        predicted_low = current_close * (1.0 + min(0.0, predicted_change_pct / 100.0) - 0.006)
+        if self.high_model is not None and self.low_model is not None:
+            high_change_pct = float(np.clip(self.high_model.predict(X_scaled[-1:])[0], predicted_change_pct, 8.0))
+            low_change_pct = float(np.clip(self.low_model.predict(X_scaled[-1:])[0], -8.0, predicted_change_pct))
+            predicted_high = current_close * (1.0 + high_change_pct / 100.0)
+            predicted_low = current_close * (1.0 + low_change_pct / 100.0)
+        else:
+            predicted_high = current_high * (1.0 + max(0.0, predicted_change_pct / 100.0) + 0.006)
+            predicted_low = current_close * (1.0 + min(0.0, predicted_change_pct / 100.0) - 0.006)
+
         confidence = max(probability_up, probability_down)
+        signal = "BUY" if direction == "Up" and confidence >= 0.60 else ("SELL" if direction == "Down" and confidence >= 0.60 else "HOLD")
 
         predicted_high_change_pct = ((predicted_high - current_close) / current_close) * 100.0 if current_close else 0.0
         predicted_low_change_pct = ((predicted_low - current_close) / current_close) * 100.0 if current_close else 0.0
@@ -285,7 +367,7 @@ class StockPredictionModel:
             "predicted_high_change_pct": round(float(predicted_high_change_pct), 2) if current_close else 0.0,
             "predicted_low_change_pct": round(float(predicted_low_change_pct), 2) if current_close else 0.0,
             "predicted_close_change_pct": round(float(predicted_close_change_pct), 2) if current_close else 0.0,
-            "signal": "BUY" if direction == "Up" else "SELL",
+            "signal": signal,
         }
 
         if self.validation_summary:
@@ -322,6 +404,9 @@ class StockPredictionModel:
             model_path = str(MODEL_DIR / "stock_prediction_model.joblib")
         payload = {
             "model": self.model,
+            "close_model": self.close_model,
+            "high_model": self.high_model,
+            "low_model": self.low_model,
             "scaler": self.scaler,
             "feature_columns": self.feature_columns,
             "model_name": self.model_name,
@@ -337,6 +422,9 @@ class StockPredictionModel:
         payload = joblib.load(model_path)
         instance = cls(payload.get("model_name", "xgboost"))
         instance.model = payload["model"]
+        instance.close_model = payload.get("close_model")
+        instance.high_model = payload.get("high_model")
+        instance.low_model = payload.get("low_model")
         instance.scaler = payload["scaler"]
         instance.feature_columns = payload["feature_columns"]
         instance.validation_summary = payload.get("validation_summary", {})

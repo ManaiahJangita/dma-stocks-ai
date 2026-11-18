@@ -40,11 +40,16 @@ public class PredictionRetrainingServiceImpl implements RetrainingService {
     @Value("${prediction.retraining.enabled:true}")
     private boolean retrainingEnabled;
 
-    @Value("${prediction.retraining.lookback-days:365}")
+    @Value("${prediction.retraining.lookback-days:1095}")
     private int lookbackDays;
 
     @Value("${prediction.model.backup.keep-count:7}")
     private int modelBackupKeepCount;
+
+    @Value("${prediction.model.name:xgboost}")
+    private String predictionModelName;
+
+    private static final String RETRAINING_TEMP_DIR = "temp/retraining";
 
     public PredictionRetrainingServiceImpl(
             PredictionComparisonRepository predictionComparisonRepository,
@@ -124,9 +129,12 @@ public class PredictionRetrainingServiceImpl implements RetrainingService {
 
         Path modelDir = projectRoot.resolve("python/models");
         Path latestModel = modelDir.resolve("stock_prediction_model.joblib");
+        Path tempDir = projectRoot.resolve(RETRAINING_TEMP_DIR);
+        Path csvFile = null;
 
         try {
             Files.createDirectories(modelDir);
+            Files.createDirectories(tempDir);
 
             Path versionedModel = modelDir.resolve("stock_prediction_model_" + LocalDate.now() + ".joblib");
             if (Files.exists(latestModel)) {
@@ -136,16 +144,16 @@ public class PredictionRetrainingServiceImpl implements RetrainingService {
                 log.info("[Retraining] No existing model found at {}. Starting fresh model training.", latestModel);
             }
 
-            Path csvFile = Files.createTempFile("stock_retrain_input", ".csv");
+            csvFile = tempDir.resolve("stock_retrain_input_" + System.currentTimeMillis() + ".csv");
             String csvContent = buildCsv(validHistory);
             Files.writeString(csvFile, csvContent, StandardCharsets.UTF_8);
-            log.info("[Retraining] Prepared CSV temp file {} with {} historical rows for model training", csvFile, validHistory.size());
+            log.info("[Retraining] Prepared CSV file {} with {} historical rows for model training", csvFile, validHistory.size());
 
             LocalDateTime startTime = LocalDateTime.now();
             String output = runPython(script, List.of(
                     "train",
                     "--input", csvFile.toString(),
-                    "--model-name", "xgboost"
+                    "--model-name", predictionModelName
             ));
             LocalDateTime endTime = LocalDateTime.now();
             Duration duration = Duration.between(startTime, endTime);
@@ -162,6 +170,28 @@ public class PredictionRetrainingServiceImpl implements RetrainingService {
         } catch (Exception e) {
             log.error("[Retraining] Automatic retraining failed for range {} to {}", startDate, endDate, e);
             return false;
+        } finally {
+            if (csvFile != null) {
+                try {
+                    Files.deleteIfExists(csvFile);
+                    log.info("[Retraining] Deleted temporary retraining CSV: {}", csvFile);
+                } catch (IOException e) {
+                    log.warn("[Retraining] Failed to delete temporary retraining CSV {}: {}", csvFile, e.getMessage());
+                }
+            }
+            try {
+                Files.list(tempDir)
+                        .filter(path -> Files.isRegularFile(path) && path.getFileName().toString().endsWith(".csv"))
+                        .forEach(path -> {
+                            try {
+                                Files.deleteIfExists(path);
+                            } catch (IOException ignored) {
+                                log.warn("[Retraining] Could not remove stale file {} from temp directory", path);
+                            }
+                        });
+            } catch (IOException e) {
+                log.warn("[Retraining] Failed to clean stale training CSV files in {}: {}", tempDir, e.getMessage());
+            }
         }
     }
 

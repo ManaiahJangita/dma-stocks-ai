@@ -48,6 +48,7 @@ public class SecurityConfig {
         http.authorizeHttpRequests(requests -> requests
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(ApiConstants.USER + "/auth/**").permitAll()
+                .requestMatchers("/api/v1/auth/google-login").permitAll()
                 .requestMatchers(ApiConstants.ADMIN + "/**").hasAuthority(Roles.ADMIN.getName())
                 .requestMatchers(ApiConstants.USER + "/**").authenticated()
                 .anyRequest().permitAll());

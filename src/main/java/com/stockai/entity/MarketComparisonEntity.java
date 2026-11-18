@@ -114,5 +114,13 @@ public class MarketComparisonEntity {
 
     @Column(name = "retraining_feedback_score")
     private Double retrainingFeedbackScore;
-}
 
+    @Column(name = "target_reached")
+    private Boolean targetReached;
+
+    @Column(name = "sell_recommended")
+    private Boolean sellRecommended;
+
+    @Column(name = "target_status", length = 40)
+    private String targetStatus;
+}

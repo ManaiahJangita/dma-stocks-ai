@@ -57,5 +57,7 @@ public class MarketComparisonDto {
     private Double predictedCloseChangePct;
     private Double modelValidationAccuracyPercent;
     private Double retrainingFeedbackScore;
+    private Boolean targetReached;
+    private Boolean sellRecommended;
+    private String targetStatus;
 }
-

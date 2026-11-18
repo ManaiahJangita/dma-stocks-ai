@@ -68,16 +68,35 @@ public class MarketComparisonServiceImpl implements MarketComparisonService {
                 log.info("[MarketComparison] No market or actual data available for comparison yet");
                 return;
             }
-            if (latestActualDate.isBefore(latestMarketDate)) {
-                log.info("[MarketComparison] Latest actual date {} is before latest market date {}. Skipping comparison.", latestActualDate, latestMarketDate);
+            if (latestActualDate.isBefore(latestMarketDate)
+                    || latestActualDate.equals(latestMarketDate)) {
+                log.info("[MarketComparison] Latest actual date {} is not after latest market date {}. Skipping comparison until next-session actual data exists.", latestActualDate, latestMarketDate);
                 return;
             }
             effectiveMarketDate = latestMarketDate;
         }
 
-        LocalDate actualDate = marketDate == null ? historicalDataRepository.findLatestCreatedDate() : marketDate.plusDays(1);
+        LocalDate actualDate = null;
+        if (marketDate == null) {
+            for (int offset = 1; offset <= 7; offset++) {
+                LocalDate candidate = effectiveMarketDate.plusDays(offset);
+                if (historicalDataRepository.findAll(candidate, candidate).stream().findAny().isPresent()) {
+                    actualDate = candidate;
+                    break;
+                }
+            }
+        } else {
+            for (int offset = 1; offset <= 7; offset++) {
+                LocalDate candidate = marketDate.plusDays(offset);
+                if (historicalDataRepository.findAll(candidate, candidate).stream().findAny().isPresent()) {
+                    actualDate = candidate;
+                    break;
+                }
+            }
+        }
+
         if (actualDate == null) {
-            log.info("[MarketComparison] No actual market data available for comparison");
+            log.info("[MarketComparison] No subsequent actual market data available for comparison");
             return;
         }
 
@@ -99,16 +118,18 @@ public class MarketComparisonServiceImpl implements MarketComparisonService {
 
         Map<String, HistoricalDataEntity> actualBySymbol = new HashMap<>();
         List<HistoricalDataEntity> actualRows = historicalDataRepository.findAll(actualDate, actualDate);
-        for (HistoricalDataEntity row : actualRows) {
-            if (row != null && row.getSymbol() != null) {
-                actualBySymbol.put(row.getSymbol(), row);
+        if (actualRows != null) {
+            for (HistoricalDataEntity row : actualRows) {
+                if (row != null && row.getSymbol() != null) {
+                    actualBySymbol.put(row.getSymbol(), row);
+                }
             }
         }
         log.info("[MarketComparison] Loaded {} market rows for date {} and indexed {} actual rows by symbol for {}",
                 marketRowsForDate.size(), effectiveMarketDate, actualBySymbol.size(), actualDate);
 
         List<MarketComparisonEntity> comparisons = new ArrayList<>();
-        UUID runId = UUID.randomUUID();
+        UUID marketRunId = UUID.randomUUID();
 
         for (MarketEntity row : marketRowsForDate) {
             HistoricalDataEntity actual = actualBySymbol.get(row.getSymbol());
@@ -119,33 +140,46 @@ public class MarketComparisonServiceImpl implements MarketComparisonService {
 
             MarketComparisonEntity comparison = new MarketComparisonEntity();
             comparison.setSymbol(row.getSymbol());
-            comparison.setMarketRunId(runId);
+            comparison.setMarketRunId(marketRunId);
             comparison.setMarketDate(effectiveMarketDate);
             comparison.setActualDate(actual.getCreatedDate());
             comparison.setPredictedOpen(row.getOpen());
             comparison.setPredictedHigh(row.getNextDayHigh() != null ? row.getNextDayHigh() : row.getHigh());
             comparison.setPredictedLow(row.getNextDayLow() != null ? row.getNextDayLow() : row.getLow());
-            comparison.setPredictedClose(row.getClose());
+            double predictedClose = row.getClose() == null ? 0.0
+                    : row.getClose() * (1.0 + (row.getNextDayReturnPct() == null ? 0.0 : row.getNextDayReturnPct()) / 100.0);
+
+            comparison.setPredictedClose(predictedClose);
             comparison.setPredictedDirection(determineDirection(row.getNextDayReturnPct()));
+            comparison.setActualDirection(actual.getClose() >= row.getClose() ? "UP" : "DOWN");
             comparison.setActualOpen(actual.getOpen());
             comparison.setActualHigh(actual.getHigh());
             comparison.setActualLow(actual.getLow());
             comparison.setActualClose(actual.getClose());
-            comparison.setActualDirection(actual.getClose() >= actual.getOpen() ? "UP" : "DOWN");
-            comparison.setPredictedProbabilityUp(row.getNextDayReturnPct() == null ? 0.0 : Math.max(0.0, Math.min(1.0, row.getNextDayReturnPct() / 100.0 + 0.5)));
-            comparison.setPredictedProbabilityDown(row.getNextDayReturnPct() == null ? 0.0 : Math.max(0.0, Math.min(1.0, 1.0 - comparison.getPredictedProbabilityUp())));
-            comparison.setConfidencePercent(row.getConfidenceScore());
-            comparison.setPredictedHighChangePct(row.getNextDayReturnPct());
-            comparison.setPredictedLowChangePct(row.getNextDayLowReturnPct());
-            comparison.setPredictedCloseChangePct(row.getChangePercent());
-            comparison.setModelValidationAccuracyPercent(row.getConfidenceScore());
+            comparison.setCloseDiff(actual.getClose() - predictedClose);
 
-            comparison.setCloseDiff(actual.getClose() - row.getClose());
+            comparison.setCloseDiffPercent(predictedClose == 0.0
+                    ? 0.0 : ((actual.getClose() - predictedClose) / predictedClose) * 100.0);
+
             comparison.setHighDiff(actual.getHigh() - comparison.getPredictedHigh());
             comparison.setLowDiff(actual.getLow() - comparison.getPredictedLow());
-            comparison.setCloseDiffPercent(actual.getClose() == 0 ? 0.0 : ((actual.getClose() - row.getClose()) / actual.getClose()) * 100.0);
-            comparison.setHighDiffPercent(actual.getHigh() == 0 ? 0.0 : ((actual.getHigh() - comparison.getPredictedHigh()) / actual.getHigh()) * 100.0);
-            comparison.setLowDiffPercent(actual.getLow() == 0 ? 0.0 : ((actual.getLow() - comparison.getPredictedLow()) / actual.getLow()) * 100.0);
+            comparison.setHighDiffPercent(comparison.getPredictedHigh() == null || comparison.getPredictedHigh() == 0.0
+                    ? 0.0 : ((actual.getHigh() - comparison.getPredictedHigh()) / comparison.getPredictedHigh()) * 100.0);
+            comparison.setLowDiffPercent(comparison.getPredictedLow() == null || comparison.getPredictedLow() == 0.0
+                    ? 0.0 : ((actual.getLow() - comparison.getPredictedLow()) / comparison.getPredictedLow()) * 100.0);
+
+            double upProbability = row.getNextDayReturnPct() == null
+                    ? 0.50
+                    : Math.max(0.0, Math.min(1.0, 0.50 + row.getNextDayReturnPct() / 100.0));
+            comparison.setPredictedProbabilityUp(upProbability);
+            comparison.setPredictedProbabilityDown(1.0 - upProbability);
+            comparison.setConfidencePercent(row.getConfidenceScore());
+            comparison.setPredictedCloseChangePct(row.getNextDayReturnPct());
+            comparison.setPredictedHighChangePct(comparison.getPredictedHigh() == null || row.getClose() == null || row.getClose() == 0.0
+                    ? 0.0 : ((comparison.getPredictedHigh() - row.getClose()) / row.getClose()) * 100.0);
+            comparison.setPredictedLowChangePct(comparison.getPredictedLow() == null || row.getClose() == null || row.getClose() == 0.0
+                    ? 0.0 : ((comparison.getPredictedLow() - row.getClose()) / row.getClose()) * 100.0);
+            comparison.setModelValidationAccuracyPercent(row.getConfidenceScore());
 
             boolean directionMatched = comparison.getPredictedDirection() != null && comparison.getPredictedDirection().equalsIgnoreCase(comparison.getActualDirection());
             comparison.setDirectionMatched(directionMatched);
@@ -154,6 +188,24 @@ public class MarketComparisonServiceImpl implements MarketComparisonService {
             comparison.setRetrainingFeedbackScore(calculateRetrainingFeedbackScore(actual, row, comparison));
             comparison.setReason(buildReason(row, comparison));
             comparison.setCreatedAt(LocalDate.now());
+
+            boolean targetReached = comparison.getPredictedHigh() != null
+                    && comparison.getPredictedHigh() > 0.0
+                    && actual.getHigh() >= comparison.getPredictedHigh();
+            boolean sellRecommended = targetReached
+                    && "UP".equalsIgnoreCase(comparison.getPredictedDirection());
+
+            comparison.setTargetReached(targetReached);
+            comparison.setSellRecommended(sellRecommended);
+            comparison.setTargetStatus(sellRecommended ? "SELL" : (targetReached ? "TARGET_REACHED" : "TARGET_NOT_REACHED"));
+
+            if (sellRecommended) {
+                comparison.setReason(buildReason(row, comparison)
+                        + " Predicted high was reached; consider SELL at or near the target.");
+            } else {
+                comparison.setReason(buildReason(row, comparison));
+            }
+
             comparisons.add(comparison);
 
         }
@@ -290,10 +342,10 @@ public class MarketComparisonServiceImpl implements MarketComparisonService {
     }
 
     private String determineDirection(Double returnPct) {
-        if (returnPct == null) {
+        if (returnPct == null || Math.abs(returnPct) < 0.0001) {
             return "NEUTRAL";
         }
-        return returnPct >= 0 ? "UP" : "DOWN";
+        return returnPct > 0.0 ? "UP" : "DOWN";
     }
 
     private double calculateRetrainingFeedbackScore(HistoricalDataEntity actual, MarketEntity modelSignal, MarketComparisonEntity comparison) {
@@ -387,6 +439,9 @@ public class MarketComparisonServiceImpl implements MarketComparisonService {
             dto.setPredictedCloseChangePct(entity.getPredictedCloseChangePct());
             dto.setModelValidationAccuracyPercent(entity.getModelValidationAccuracyPercent());
             dto.setRetrainingFeedbackScore(entity.getRetrainingFeedbackScore());
+            dto.setTargetReached(entity.getTargetReached());
+            dto.setSellRecommended(entity.getSellRecommended());
+            dto.setTargetStatus(entity.getTargetStatus());
             dtos.add(dto);
         }
         return dtos;

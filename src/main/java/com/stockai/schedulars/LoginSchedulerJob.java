@@ -23,7 +23,7 @@ public class LoginSchedulerJob extends BasicJob {
     @Autowired
     private PredictionSyncSchedular predictionSyncSchedular;
 
-    @Scheduled(cron = "0 19 22 ? * MON-FRI")
+    @Scheduled(cron = "0 26 21 ? * MON-FRI")
     public void executeJob() {
         log.debug("Started login scheduler job");
         if (!canProcess()) {

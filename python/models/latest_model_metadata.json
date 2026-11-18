@@ -1,5 +1,5 @@
 {
-  "status" : "trained",
-  "updated_at" : [ 2026, 11, 13 ],
-  "output" : "{\"status\": \"success\", \"model_path\": \"E:\\\\dma-stocks\\\\dma-stocks-ai\\\\python\\\\models\\\\stock_prediction_model.joblib\", \"model_name\": \"xgboost\", \"features\": [\"momentum_1\", \"momentum_5\", \"momentum_10\", \"momentum_20\", \"range_pct\", \"open_gap\", \"close_gap\", \"volume_signal\", \"volatility\", \"rsi_14\", \"trend_strength\"], \"validation_summary\": {\"accuracy_percent\": 55.96, \"precision_percent\": 56.95, \"recall_percent\": 16.75, \"f1_percent\": 25.77, \"folds\": 5}}"
+  "output" : "{\"status\": \"success\", \"model_path\": \"E:\\\\dma-stocks\\\\dma-stocks-ai\\\\python\\\\models\\\\stock_prediction_model.joblib\", \"model_name\": \"xgboost\", \"features\": [\"momentum_1\", \"momentum_5\", \"momentum_10\", \"momentum_20\", \"range_pct\", \"open_gap\", \"close_gap\", \"volume_signal\", \"volatility\", \"rsi_14\", \"trend_strength\"], \"validation_summary\": {\"accuracy_percent\": 56.02, \"precision_percent\": 55.96, \"recall_percent\": 20.19, \"f1_percent\": 29.62, \"folds\": 5, \"validation_samples\": 345760, \"correct_validation_predictions\": 193692}}",
+  "updated_at" : [ 2026, 11, 18 ],
+  "status" : "trained"
 }
